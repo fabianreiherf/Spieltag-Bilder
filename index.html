@@ -342,9 +342,9 @@ function fmtDate(d){if(!d)return'';const x=new Date(d+'T12:00:00');if(isNaN(x))r
 const todayISO=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
 
 // ---------- Verbindung zum Google-Skript ----------
-const API_RE=/^https:\/\/script\.google\.com\/(?:a\/macros\/([a-z0-9.-]+)\/|macros\/)s\/([A-Za-z0-9_-]{20,200})\/exec/i;
+const API_RE=/https:\/\/script\.google\.com\/(?:a\/macros\/([a-z0-9.-]+)\/|macros\/)s\/([A-Za-z0-9_-]{20,200})\/exec/i;
 function parseLink(text){
-  text=String(text||'').trim();
+  text=String(text||'').replace(/[\s\u200b-\u200d\ufeff]+/g,'');
   let m=/[?&]e=([A-Za-z0-9_.~-]+)/.exec(text);
   if(m){const p=m[1].split('~');if(/^[A-Za-z0-9_-]{20,200}$/.test(p[0]||'')&&/^[a-z0-9]{16,64}$/i.test(p[1]||''))return{url:'https://script.google.com/'+(p[2]?'a/macros/'+p[2]+'/':'macros/')+'s/'+p[0]+'/exec',k:p[1],admin:false,raw:appUrl()+'?e='+m[1]}}
   m=API_RE.exec(text);
