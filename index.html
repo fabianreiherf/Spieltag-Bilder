@@ -12,9 +12,11 @@
 <link rel="icon" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
 <title>Spieltag-Bilder</title>
+<link rel="preconnect" href="https://script.google.com">
+<link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800&family=Kaushan+Script&family=Anton&family=Barlow:wght@500;700&family=Barlow+Condensed:wght@600;800&family=Bebas+Neue&family=Oswald:wght@500;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800&family=Archivo:wght@700;800&family=Kaushan+Script&family=Anton&family=Barlow:wght@500;700&family=Barlow+Condensed:wght@600;800&family=Bebas+Neue&family=Oswald:wght@500;700&display=swap">
 <style>
 /* Vereinsdesign wie Haupt-App, Getränke und Kühlraum: Vereinsblau mit Spielfeld-Linien, Wappen oben, weiße Karten.
    Handy: eine Spalte zum Erstellen. PC (ab 900 px): zusätzlich Einstellungen als Werkbank mit Vorschau. */
@@ -290,18 +292,21 @@ div.note p { flex: 1 1 180px; text-align: left; }
 .camnative { border: 0; background: none; color: rgba(255,255,255,.8); font-weight: 700; font-size: .85rem; text-decoration: underline; padding: 6px; }
 .cambox { max-height: calc(100dvh - 230px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); width: min(100%, calc((100dvh - 230px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) * var(--ar, .5625))); }
 .cam { gap: 14px; }
+.chipbtn.hellchip { background: rgba(255,255,255,.14); color: #fff; }
+.chipbtn.hellchip[aria-pressed="true"] { background: #fff; color: #20317f; }
 </style>
 </head>
 <body>
 <div id="app"></div>
 <input type="file" id="fileCam" accept="image/*" capture="environment" hidden>
 <input type="file" id="fileGal" accept="image/*" hidden>
+<input type="file" id="fileFont" accept=".ttf,.otf,.woff,.woff2,font/*" hidden>
 <input type="file" id="fileOv" accept="image/png,image/webp,image/*" hidden>
 <script>
 "use strict";
 // ---------- Grundwerte ----------
 const FMT={story:{w:1080,h:1920,label:'Story'},post:{w:1080,h:1350,label:'Post'}};
-const FONTS={'Montserrat':[600,800],'Kaushan Script':[400,400],'Bebas Neue':[400,400],'Anton':[400,400],'Barlow Condensed':[600,800],'Oswald':[500,700],'Barlow':[500,700]};
+const FONTS={'Modern':[700,800],'Montserrat':[600,800],'Kaushan Script':[400,400],'Bebas Neue':[400,400],'Anton':[400,400],'Barlow Condensed':[600,800],'Oswald':[500,700],'Barlow':[500,700]};
 const PLACEHOLDERS=[['spieler','Spieler'],['minute','Minute'],['tore_heim','Tore Heim'],['tore_gast','Tore Gast'],['heim','Heimteam'],['gast','Gastteam'],['gegner','Gegner'],['verein','Verein'],['datum','Datum'],['anstoss','Anstoß'],['torschuetzen','Torschützen-Liste'],['text','Freitext']];
 const DEF_SETTINGS={verein:'SV Etteln',farbe:'#20317f',akzent:'#f2b52c',admin:''};
 const WH='#ffffff', AC='#f2b52c';
@@ -368,14 +373,19 @@ async function call(body){
   const r=await fetch(S.con.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(body)});
   const j=await r.json();
   if(!j.ok){const e=new Error(j.error||'fehler');e.code=j.error;throw e}
-  if(j.data)take(j.data);
+  if(j.data)j.changed=take(j.data);
   return j;
 }
+let lastSig='';
 function take(d){
   if(d.now)S.off=d.now-Date.now();
+  const sig=JSON.stringify([d.me,d.set,d.tpl,d.players,d.match,d.pers]);
+  if(sig===lastSig&&!E.dirty)return false;lastSig=sig;
   S.me=d.me;S.settings={...DEF_SETTINGS,...(d.set||{})};S.players=d.players||[];S.match=d.match||null;S.pers=d.pers||[];
   if(!E.dirty){S.templates=Array.isArray(d.tpl)&&d.tpl.length?d.tpl:defaultTemplates();E.draft=null}
   ls.set('sb-data',d);
+  if((S.settings.fonts||[]).length)loadCustomFonts().then(()=>{if(S.view==='editor')drawEditor()});
+  return true;
 }
 function errText(e){
   if(e&&e.code==='key')return 'Dein Link gilt nicht mehr. Bitte den Verwalter um einen neuen.';
@@ -387,7 +397,8 @@ function errText(e){
 let loading=null;
 function refresh(){
   if(!S.con||loading)return loading;
-  loading=call({a:'load'}).then(()=>{S.err='';},e=>{S.err=e.code==='key'?'key':'netz'}).finally(()=>{loading=null;if(S.view==='loading')S.view='home';rerenderSoft()});
+  const wasErr=S.err,wasLoading=S.view==='loading';
+  loading=call({a:'load'}).then(j=>{S.err='';if(j.changed||wasErr||wasLoading)return true;preload()},e=>{S.err=e.code==='key'?'key':'netz';return true}).then(ch=>{if(S.view==='loading')S.view='home';if(ch){rerenderSoft();preload()}}).finally(()=>{loading=null});
   return loading;
 }
 
@@ -407,10 +418,30 @@ function overlayImg(id){
   return imgCache[id];
 }
 const prepOverlay=(tpl,fmt)=>overlayImg(tpl.overlay&&tpl.overlay[fmt]);
+// Overlays der sichtbaren Buttons im Hintergrund vorladen, damit das fertige Bild sofort da ist
+let preloading=false;
+async function preload(){if(preloading)return;preloading=true;try{for(const t of visibleTemplates())for(const f of [S.fmt,'story','post'])if(t.overlay&&t.overlay[f])await overlayImg(t.overlay[f])}finally{preloading=false}}
 
 // ---------- Zeichnen ----------
-const fontsReady=(async()=>{try{await Promise.all(Object.entries(FONTS).flatMap(([n,w])=>[...new Set(w)].map(x=>document.fonts.load(`${x} 60px "${n}"`))));await document.fonts.ready}catch(e){}})();
-function fontStr(el,px){const f=FONTS[el.font]||FONTS['Barlow Condensed'];return `${el.bold?f[1]:f[0]} ${px}px "${el.font}", "Arial Narrow", Arial, sans-serif`}
+const FONT_FAM={'Modern':'Archivo'},FONT_UPPER={'Modern':true};
+const famOf=n=>FONT_FAM[n]||(customFont(n)?'cf-'+customFont(n).id:n);
+function customFont(n){return (S.settings.fonts||[]).find(f=>f.name===n)}
+const fontsReady=(async()=>{try{await Promise.all(Object.entries(FONTS).flatMap(([n,w])=>[...new Set(w)].map(x=>document.fonts.load(`${x} 60px "${famOf(n)}"`))));}catch(e){}})();
+// Eigene Schriften (am PC hochgeladen): einmal laden, auf dem Gerät merken
+const fontLoads={};
+function loadCustomFonts(){
+  return Promise.all((S.settings.fonts||[]).map(f=>{
+    if(!fontLoads[f.id])fontLoads[f.id]=(async()=>{
+      let data=await idb.get(f.id);
+      if(!data){try{const r=await call({a:'ovget',id:f.id});data=r.data;idb.put(f.id,data)}catch(e){delete fontLoads[f.id];return}}
+      try{const buf=await (await fetch(data)).arrayBuffer();const ff=new FontFace('cf-'+f.id,buf);await ff.load();document.fonts.add(ff)}catch(e){}
+    })();
+    return fontLoads[f.id];
+  }));
+}
+function fontStr(el,px){const f=FONTS[el.font]||(customFont(el.font)?[400,400]:FONTS['Barlow Condensed']);return `${el.bold?f[1]:f[0]} ${px}px "${famOf(el.font)}", "Arial Narrow", Arial, sans-serif`}
+const allFonts=()=>[...Object.keys(FONTS),...(S.settings.fonts||[]).map(f=>f.name)];
+const isMovable=el=>el.movable===undefined?/\{text\}/.test(el.text||''):!!el.movable;
 function hexA(hex,a){const m=/^#?([0-9a-f]{6})$/i.exec(hex||'');if(!m)return `rgba(0,0,0,${a})`;const n=parseInt(m[1],16);return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`}
 function drawPitch(ctx,W,H){
   ctx.fillStyle='#2f7d45';ctx.fillRect(0,0,W,H);
@@ -450,25 +481,31 @@ function drawPlaceholder(ctx,W,H,tpl,fmt){
 }
 function resolveText(text,vars){let empty=false;const out=String(text||'').replace(/\{(\w+)\}/g,(m,k)=>{const v=vars[k];if(v==null||v===''){empty=true;return''}return String(v)});return empty?null:out}
 function renderCanvas(ctx,o){
-  const {W,H,tpl,fmt,vars,photo,tf,ov,demo,clear,mirror}=o;
+  const {W,H,tpl,fmt,vars,photo,tf,ov,demo,clear,mirror,ovr}=o;
   ctx.clearRect(0,0,W,H);
   if(photo)drawCover(ctx,photo,W,H,tf,mirror);else if(demo)drawPitch(ctx,W,H);else if(!clear){ctx.fillStyle='#1d2a5a';ctx.fillRect(0,0,W,H)}
   if(ov)ctx.drawImage(ov,0,0,W,H);else drawPlaceholder(ctx,W,H,tpl,fmt);
   const boxes=[];
   (tpl.elements||[]).forEach((el,i)=>{
     const t=resolveText(el.text,vars);if(t==null||t==='')return;
-    const p=el[fmt]||el.story,size=p.size*W/1080,lh=size*1.08;
-    const lines=t.split('\n').map(l=>el.upper?l.toUpperCase():l);
-    ctx.save();ctx.font=fontStr(el,size);ctx.textAlign=el.align||'center';ctx.textBaseline='middle';ctx.fillStyle=el.color||'#fff';
+    const p=el[fmt]||el.story,m=(ovr&&ovr[el.id])||null;
+    const size=p.size*W/1080*(m?m.s:1),lh=size*1.08,upper=el.upper||FONT_UPPER[el.font];
+    const lines=t.split('\n').map(l=>upper?l.toUpperCase():l);
+    const x=(p.x+(m?m.dx:0))*W,y=(p.y+(m?m.dy:0))*H,rot=((Number(el.rot)||0)+(m?m.r:0))*Math.PI/180;
+    ctx.save();ctx.translate(x,y);if(rot)ctx.rotate(rot);
+    ctx.font=fontStr(el,size);ctx.textAlign=el.align||'center';ctx.textBaseline='middle';ctx.fillStyle=el.color||'#fff';
     if(el.shadow){ctx.shadowColor='rgba(0,0,0,.55)';ctx.shadowBlur=size*.14;ctx.shadowOffsetY=size*.04}
-    const x=p.x*W,y=p.y*H;let mw=0;
-    lines.forEach((l,j)=>{ctx.fillText(l,x,y+j*lh);mw=Math.max(mw,ctx.measureText(l).width)});
+    let mw=0;lines.forEach((l,j)=>{ctx.fillText(l,0,j*lh);mw=Math.max(mw,ctx.measureText(l).width)});
     ctx.restore();
-    const left=el.align==='left'?x:el.align==='right'?x-mw:x-mw/2;
-    boxes.push({i,x:left-12,y:y-lh/2-6,w:mw+24,h:lh*lines.length+12});
+    const lx=el.align==='left'?0:el.align==='right'?-mw:-mw/2;
+    boxes.push({i,id:el.id,cx:x,cy:y,rot,lx:lx-14,ly:-lh/2-8,w:mw+28,h:lh*lines.length+16});
   });
   return boxes;
 }
+function hitBox(boxes,x,y,filter){
+  return [...boxes].reverse().find(b=>{if(filter&&!filter(b))return false;const dx=x-b.cx,dy=y-b.cy,c=Math.cos(-b.rot),sn=Math.sin(-b.rot),lx=dx*c-dy*sn,ly=dx*sn+dy*c;return lx>=b.lx&&lx<=b.lx+b.w&&ly>=b.ly&&ly<=b.ly+b.h});
+}
+function outline(ctx,b){ctx.save();ctx.translate(b.cx,b.cy);ctx.rotate(b.rot);ctx.strokeStyle='#f2b52c';ctx.lineWidth=4;ctx.setLineDash([14,10]);ctx.strokeRect(b.lx,b.ly,b.w,b.h);ctx.restore()}
 
 // ---------- Platzhalter-Werte ----------
 function goalsGrouped(excludeId){
@@ -628,13 +665,27 @@ function vCam(){
   <div class="camctl"><button class="rad" data-act="camClose" aria-label="Schließen">${IC.x}</button><button class="shutter" data-act="shoot" aria-label="Auslösen"></button><button class="rad" data-act="camFlip" aria-label="Kamera wechseln">${IC.flip}</button></div>
   <button class="camnative" data-act="camNative">iPhone-Kamera öffnen</button></div>`;
 }
+function movableIds(){return (F.boxes||[]).filter(b=>isMovable(F.tpl.elements[b.i])).map(b=>b.id)}
 function vResult(){
   const share=!!(navigator.canShare&&navigator.share);
+  if(F.mode==='text'){
+    const ids=movableIds(),cur=F.tsel&&ids.includes(F.tsel)?F.tsel:ids[0];F.tsel=cur;const o=F.ovr[cur]||{s:1,r:0};
+    const els=F.tpl.elements.filter(e=>ids.includes(e.id));
+    return `<div class="wrap">${topbar('Text anpassen','textDone')}
+    <div class="stage"><canvas id="txc" class="adj"></canvas></div>
+    <p class="note">Text mit dem Finger ziehen. Mit zwei Fingern drehen und größer oder kleiner machen.</p>
+    ${els.length>1?`<div class="chips2">${els.map(e=>`<button class="chipbtn hellchip" data-act="tSel" data-v="${h(e.id)}" aria-pressed="${e.id===cur}">${h(e.label||'Text')}</button>`).join('')}</div>`:''}
+    <section class="card"><label class="feld"><span>Größe</span><input type="range" id="tx_s" min="0.3" max="3" step="0.01" value="${o.s}"></label>
+    <label class="feld"><span>Drehung</span><input type="range" id="tx_r" min="-180" max="180" step="1" value="${o.r}"></label></section>
+    <div class="reihe"><button class="btn glas" data-act="textReset">Zurücksetzen</button><button class="btn weiss" data-act="textDone">Fertig</button></div></div>`;
+  }
+  const canText=movableIds().length>0;
   return `<div class="wrap">${topbar(F.tpl.name,'toSource')}
   <div class="stage">${F.adjust?'<canvas id="adj" class="adj"></canvas>':`<img id="outImg" alt="Fertiges Bild" ${F.url?`src="${F.url}"`:''}>`}</div>
   ${F.adjust?`<p class="note">Bild mit dem Finger verschieben, mit zwei Fingern zoomen.</p><section class="card"><label class="feld"><span>Zoom</span><input type="range" id="zoom" min="1" max="4" step="0.01" value="${F.tf.zoom}"></label></section><button class="btn gross" data-act="adjustDone">Fertig</button>`:
   `<button class="btn gross weiss" data-act="share">${IC.share}${share?'Teilen oder sichern':'Bild herunterladen'}</button>
-  <div class="reihe"><button class="btn glas" data-act="adjust">Ausschnitt anpassen</button>${segFmt(F.fmt,'resFmt',true)}</div>
+  <div class="reihe"><button class="btn glas" data-act="adjust">Ausschnitt anpassen</button>${canText?'<button class="btn glas" data-act="textMode">Text anpassen</button>':''}</div>
+  <div class="reihe">${segFmt(F.fmt,'resFmt',true)}</div>
   <button class="btn gross" data-act="home">Fertig</button>`}</div>`;
 }
 
@@ -651,7 +702,7 @@ function edTemplates(){
   const t=d[E.ti];if(!t)return '<section class="card"><p class="hint">Keine Buttons angelegt.</p><button class="btn" data-act="tplAdd">Button hinzufügen</button></section>';
   if(E.ei>=t.elements.length)E.ei=Math.max(0,t.elements.length-1);
   const el=t.elements[E.ei],fp=el?el[E.fmt]:null,a=t.ask,ov=t.overlay[E.fmt];
-  const fontOpts=Object.keys(FONTS).map(f=>`<option ${el&&el.font===f?'selected':''}>${f}</option>`).join('');
+  const fontOpts=allFonts().map(f=>`<option ${el&&el.font===f?'selected':''}>${h(f)}</option>`).join('');
   return `<div class="ed">
   <div class="stack"><div class="glass tlist"><span class="eyebrow">Buttons in der App</span>${d.map((x,i)=>`<button class="it" data-act="tplSel" data-i="${i}" aria-current="${i===E.ti}"><span class="kic sm">${tplIcon(x)}</span>${h(x.name)}</button>`).join('')}
    <div class="reihe"><button class="mini hellm" data-act="tplMove" data-d="-1" aria-label="nach oben">↑</button><button class="mini hellm" data-act="tplMove" data-d="1" aria-label="nach unten">↓</button><button class="btn weiss klein" data-act="tplAdd">+ Button</button></div></div></div>
@@ -683,10 +734,12 @@ function edTemplates(){
     <div class="drei"><label class="feld"><span>Größe</span><input type="number" id="e_size" data-ed="p.size" value="${Math.round(fp.size)}" min="10" max="600"></label>
      <label class="feld"><span>X %</span><input type="number" id="e_x" data-ed="p.x" value="${Math.round(fp.x*1000)/10}" step="0.5"></label>
      <label class="feld"><span>Y %</span><input type="number" id="e_y" data-ed="p.y" value="${Math.round(fp.y*1000)/10}" step="0.5"></label></div>
+    <div class="zwei"><label class="feld"><span>Drehung °</span><input type="number" id="e_rot" data-ed="e.rot" value="${Number(el.rot)||0}" step="1" min="-180" max="180"></label><span></span></div>
     <label class="feld"><span>Ausrichtung</span><select id="e_align" data-ed="e.align">${[['left','links'],['center','mittig'],['right','rechts']].map(([k,l])=>`<option value="${k}" ${el.align===k?'selected':''}>${l}</option>`).join('')}</select></label>
     <label class="sw"><span class="t">Fett</span><input type="checkbox" id="e_bold" data-ed="e.bold" ${el.bold?'checked':''}></label>
     <label class="sw"><span class="t">Großbuchstaben</span><input type="checkbox" id="e_upper" data-ed="e.upper" ${el.upper?'checked':''}></label>
     <label class="sw"><span class="t">Schatten</span><input type="checkbox" id="e_shadow" data-ed="e.shadow" ${el.shadow?'checked':''}></label>
+    <label class="sw"><span class="t">Am Handy auf dem fertigen Bild anpassbar<small>Verschieben, drehen und Größe ändern. Startet immer so, wie hier eingestellt.</small></span><input type="checkbox" id="e_mov" data-ed="e.movable" ${isMovable(el)?'checked':''}></label>
     <p class="hint">Größe und Position gelten für ${FMT[E.fmt].label}. Das andere Format stellst du über der Vorschau um.</p>
     ${E.confirm==='el'?'<div class="reihe"><button class="btn rot" data-act="elDel">Text wirklich löschen</button><button class="btn hell" data-act="cancelConfirm">Abbrechen</button></div>':'<button class="btn rot klein" data-act="askElDel">Diesen Text löschen</button>'}`:''}
    </section>
@@ -731,6 +784,9 @@ function edClub(){
    <div class="zwei"><label class="feld"><span>Vereinsfarbe</span><input type="color" id="c_f" value="${h(s.farbe)}"></label>
    <label class="feld"><span>Akzentfarbe</span><input type="color" id="c_a" value="${h(s.akzent)}"></label></div>
    <button class="btn" data-act="clubSave">Speichern</button></section>
+   <section class="card"><div class="title">Eigene Schriften</div><p class="hint">Lade eine Schriftdatei hoch (.ttf, .otf oder .woff2). Sie steht dann bei den Texten auf dem Bild zur Auswahl.</p>
+    ${(s.fonts||[]).length?`<div class="list">${s.fonts.map(f=>`<div class="row"><span class="mid"><b style="font-family:'cf-${h(f.id)}'">${h(f.name)}</b></span><button class="mini" data-act="fontDel" data-v="${h(f.id)}">Entfernen</button></div>`).join('')}</div>`:''}
+    <div class="reihe"><input class="eingabe" id="f_name" placeholder="Name der Schrift" style="flex:2 1 160px"><button class="btn hell" data-act="fontUp">Datei wählen</button></div></section>
    <section class="card"><div class="title">Wofür die Farben sind</div><p class="hint">Die Farben gelten nur für die Platzhalter-Overlays. Sobald du für einen Button ein eigenes PNG hochlädst, wird dein PNG verwendet.</p>
    <div class="title">Verbindung</div><p class="hint">Verbunden mit deinem Google-Skript als Verwalter.</p><button class="btn hell" data-act="relink">Anderen Link einfügen</button></section></div>`;
 }
@@ -746,7 +802,7 @@ function linkSheet(p){
 let lastView='';
 function render(){
   const app=$('#app');
-  if(S.view!=='cam')stopCam();
+  if(S.view!=='cam')parkCam();
   if(S.view==='loading'){app.innerHTML='<div class="wrap"><div class="lade"></div></div>';return}
   if(S.view==='editor'&&!canEditHere())S.view='home';
   const map={welcome:vWelcome,home:vHome,match:vMatch,input:vInput,source:vSource,cam:vCam,result:vResult,editor:vEditor};
@@ -754,7 +810,7 @@ function render(){
   const w=app.firstElementChild;
   if(w&&S.view!==lastView){w.classList.add(lastView&&S.view==='home'?'rueck':'vor');lastView=S.view}
   if(S.view==='editor'&&E.tab==='vorlagen')drawEditor();
-  if(S.view==='result')F.adjust?drawAdjust():(!F.url&&compose());
+  if(S.view==='result')F.mode==='text'?drawText():F.adjust?drawAdjust():(!F.url&&compose());
   if(S.view==='cam')startCam();
   if(S._scrollTop){window.scrollTo(0,0);S._scrollTop=false}
 }
@@ -776,14 +832,14 @@ async function drawEditor(){
   const ctx=c.getContext('2d');
   edBoxes=renderCanvas(ctx,{W:w,H,tpl:t,fmt:E.fmt,vars:sampleVars(),demo:true,ov:edOv});
   const b=edBoxes.find(x=>x.i===E.ei);
-  if(b){ctx.save();ctx.strokeStyle='#f2b52c';ctx.lineWidth=4;ctx.setLineDash([14,10]);ctx.strokeRect(b.x,b.y,b.w,b.h);ctx.restore()}
+  if(b)outline(ctx,b);
 }
 let edDrag=null;
 document.addEventListener('pointerdown',e=>{
   if(e.target.id==='edc'){
     const c=e.target,r=c.getBoundingClientRect(),sx=c.width/r.width,sy=c.height/r.height;
     const x=(e.clientX-r.left)*sx,y=(e.clientY-r.top)*sy;
-    const hit=[...edBoxes].reverse().find(b=>x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h);
+    const hit=hitBox(edBoxes,x,y);
     if(!hit)return;
     const el=draft()[E.ti].elements[hit.i];
     edDrag={x,y,sx,sy,el,ox:el[E.fmt].x,oy:el[E.fmt].y,id:e.pointerId,moved:false};
@@ -809,7 +865,7 @@ function markDirty(re){E.dirty=true;if(re)render();else updateBar()}
 function updateBar(){const sb=$('.bar');if(!sb)return;sb.querySelector('.txt b').textContent=E.dirty?'Nicht gespeichert':'Alles gespeichert';const s=sb.querySelector('[data-act=tplSave]');if(s)s.disabled=!E.dirty;if(E.dirty&&!sb.querySelector('[data-act=tplDiscard]')){const d=document.createElement('button');d.className='btn hell';d.dataset.act='tplDiscard';d.textContent='Verwerfen';sb.insertBefore(d,s)}}
 
 // ---------- Live-Kamera ----------
-let camStream=null,camTrack=null,camZoom={hw:false,min:1,max:4,z:1},zoomRaf=0;
+let camStream=null,camFacing='',camIdle=0,camTrack=null,camZoom={hw:false,min:1,max:4,z:1},zoomRaf=0;
 async function getStream(facing){
   const base={facingMode:{ideal:facing},width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30}};
   try{return await navigator.mediaDevices.getUserMedia({video:{...base,zoom:true},audio:false})}
@@ -818,11 +874,11 @@ async function getStream(facing){
 async function startCam(){
   const v=$('#vid');if(!v)return;
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){camFallback();return}
+  clearTimeout(camIdle);
   try{
-    stopCam();
-    camStream=await getStream(F.cam.facing);
-    if(S.view!=='cam'){stopCam();return}
-    camTrack=camStream.getVideoTracks()[0];
+    const live=camStream&&camTrack&&camTrack.readyState==='live'&&camFacing===F.cam.facing;
+    if(!live){stopCam();camStream=await getStream(F.cam.facing);camFacing=F.cam.facing;camTrack=camStream.getVideoTracks()[0]}
+    if(S.view!=='cam')return;
     v.srcObject=camStream;await v.play().catch(()=>{});
   }catch(e){camFallback();return}
   // Zoom: echter Kamera-Zoom, wenn das Handy ihn anbietet, sonst Ausschnitt-Zoom
@@ -858,7 +914,9 @@ const camPtrs=new Map();let camPinch=null;
 document.addEventListener('pointerdown',e=>{if(e.target.id!=='camOv')return;e.target.setPointerCapture(e.pointerId);camPtrs.set(e.pointerId,{x:e.clientX,y:e.clientY});if(camPtrs.size===2){const[a,b]=[...camPtrs.values()];camPinch={d:Math.hypot(a.x-b.x,a.y-b.y),z:camZoom.z}}});
 document.addEventListener('pointermove',e=>{if(!camPtrs.has(e.pointerId))return;camPtrs.set(e.pointerId,{x:e.clientX,y:e.clientY});if(camPtrs.size===2&&camPinch){const[a,b]=[...camPtrs.values()];setZoom(camPinch.z*Math.hypot(a.x-b.x,a.y-b.y)/camPinch.d)}});
 ['pointerup','pointercancel'].forEach(n=>document.addEventListener(n,e=>{camPtrs.delete(e.pointerId);if(camPtrs.size<2)camPinch=null}));
-function stopCam(){if(camStream){camStream.getTracks().forEach(t=>t.stop());camStream=null;camTrack=null}}
+function stopCam(){clearTimeout(camIdle);if(camStream){camStream.getTracks().forEach(t=>t.stop());camStream=null;camTrack=null;camFacing=''}}
+// Nach dem Verlassen der Kamera bleibt sie 10 Minuten bereit, damit iOS nicht jedes Mal neu um Erlaubnis fragt
+function parkCam(){if(!camStream)return;clearTimeout(camIdle);camIdle=setTimeout(stopCam,10*60*1000)}
 function camFallback(){stopCam();toast('Die Kamera lässt sich hier nicht live öffnen. Die iPhone-Kamera öffnet sich stattdessen.');S.view='source';render();setTimeout(()=>$('#fileCam').click(),50)}
 function shoot(){
   const v=$('#vid');if(!v||!v.videoWidth)return;
@@ -871,7 +929,7 @@ function shoot(){
   if(F.cam.facing==='user'){ctx.translate(c.width,0);ctx.scale(-1,1)}
   ctx.drawImage(v,(vw-cw)/2,(vh-ch)/2,cw,ch,0,0,c.width,c.height);
   const box=$('.cambox');if(box)box.classList.add('blitz');
-  F.photo=c;F.tf={zoom:1,ox:0,oy:0};F.url=null;F.adjust=false;
+  F.photo=c;F.tf={zoom:1,ox:0,oy:0};F.ovr={};F.mode='img';F.url=null;F.adjust=false;
   setTimeout(()=>go('result'),180);
 }
 
@@ -881,7 +939,8 @@ async function compose(){
   await fontsReady;const ov=await prepOverlay(F.tpl,F.fmt);F.ov=ov;
   const cx=c.getContext('2d');cx.imageSmoothingEnabled=true;cx.imageSmoothingQuality='high';
   clampTf(F.photo,w,H,F.tf);
-  renderCanvas(c.getContext('2d'),{W:w,H,tpl:F.tpl,fmt:F.fmt,vars:buildVars(F.input,F.goalId),photo:F.photo,tf:F.tf,ov});
+  F.boxes=renderCanvas(cx,{W:w,H,tpl:F.tpl,fmt:F.fmt,vars:buildVars(F.input,F.goalId),photo:F.photo,tf:F.tf,ov,ovr:F.ovr});
+  if(!F.adjust&&F.mode!=='text'){const b=$('[data-act=adjust]');if(b&&movableIds().length&&!$('[data-act=textMode]')){const t=document.createElement('button');t.className='btn glas';t.dataset.act='textMode';t.textContent='Text anpassen';b.after(t)}}
   const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',.95));
   if(F.url)URL.revokeObjectURL(F.url);F.blob=blob;F.url=URL.createObjectURL(blob);
   const img=$('#outImg');if(img)img.src=F.url;
@@ -890,8 +949,32 @@ async function compose(){
 function drawAdjust(){
   const c=$('#adj');if(!c)return;const {w,h:H}=FMT[F.fmt];if(c.width!==w)c.width=w;if(c.height!==H)c.height=H;
   clampTf(F.photo,w,H,F.tf);
-  renderCanvas(c.getContext('2d'),{W:w,H,tpl:F.tpl,fmt:F.fmt,vars:buildVars(F.input,F.goalId),photo:F.photo,tf:F.tf,ov:F.ov});
+  renderCanvas(c.getContext('2d'),{W:w,H,tpl:F.tpl,fmt:F.fmt,vars:buildVars(F.input,F.goalId),photo:F.photo,tf:F.tf,ov:F.ov,ovr:F.ovr});
 }
+function drawText(){
+  const c=$('#txc');if(!c)return;const {w,h:H}=FMT[F.fmt];if(c.width!==w)c.width=w;if(c.height!==H)c.height=H;
+  const ctx=c.getContext('2d');F.boxes=renderCanvas(ctx,{W:w,H,tpl:F.tpl,fmt:F.fmt,vars:buildVars(F.input,F.goalId),photo:F.photo,tf:F.tf,ov:F.ov,ovr:F.ovr});
+  const b=F.boxes.find(x=>x.id===F.tsel);if(b)outline(ctx,b);
+}
+// Gesten im Text-Modus
+const tPtrs=new Map();let tPinch=null;
+function tCur(){if(!F.ovr[F.tsel])F.ovr[F.tsel]={dx:0,dy:0,s:1,r:0};return F.ovr[F.tsel]}
+function tSync(){const o=F.ovr[F.tsel]||{s:1,r:0},a=$('#tx_s'),b=$('#tx_r');if(a)a.value=o.s;if(b)b.value=Math.round(o.r)}
+document.addEventListener('pointerdown',e=>{
+  if(e.target.id!=='txc')return;const c=e.target,r=c.getBoundingClientRect();
+  if(tPtrs.size===0){const x=(e.clientX-r.left)*c.width/r.width,y=(e.clientY-r.top)*c.height/r.height;const hit=hitBox(F.boxes||[],x,y,b=>isMovable(F.tpl.elements[b.i]));if(hit&&hit.id!==F.tsel){F.tsel=hit.id;document.querySelectorAll('[data-act=tSel]').forEach(q=>q.setAttribute('aria-pressed',String(q.dataset.v===hit.id)));tSync()}}
+  c.setPointerCapture(e.pointerId);tPtrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(tPtrs.size===2){const[a,b]=[...tPtrs.values()],o=tCur();tPinch={d:Math.hypot(a.x-b.x,a.y-b.y),ang:Math.atan2(b.y-a.y,b.x-a.x),s:o.s,r:o.r}}
+  e.preventDefault();drawText();
+});
+document.addEventListener('pointermove',e=>{
+  if(!tPtrs.has(e.pointerId))return;const c=$('#txc');if(!c)return;const r=c.getBoundingClientRect();
+  const prev=tPtrs.get(e.pointerId);tPtrs.set(e.pointerId,{x:e.clientX,y:e.clientY});const o=tCur();
+  if(tPtrs.size===1){o.dx+=(e.clientX-prev.x)/r.width;o.dy+=(e.clientY-prev.y)/r.height}
+  else if(tPtrs.size===2&&tPinch){const[a,b]=[...tPtrs.values()];o.s=Math.max(.3,Math.min(3,tPinch.s*Math.hypot(a.x-b.x,a.y-b.y)/tPinch.d));let rr=tPinch.r+(Math.atan2(b.y-a.y,b.x-a.x)-tPinch.ang)*180/Math.PI;rr=((rr+540)%360)-180;o.r=Math.abs(rr)<3?0:rr;tSync()}
+  drawText();
+});
+['pointerup','pointercancel'].forEach(n=>document.addEventListener(n,e=>{tPtrs.delete(e.pointerId);if(tPtrs.size<2)tPinch=null}));
 const ptrs=new Map();let pinch0=null;
 function adjDown(e){e.target.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});if(ptrs.size===2){const[a,b]=[...ptrs.values()];pinch0={d:Math.hypot(a.x-b.x,a.y-b.y),z:F.tf.zoom}}e.preventDefault()}
 function adjMove(e){
@@ -918,16 +1001,28 @@ function startFlow(id){
   const t=S.templates.find(x=>x.id===id);if(!t)return;
   const m=S.match||{};
   const ci=clockInfo(),autoMin=(ci&&m.autoMin!==false&&ci.phase!=='ende')?ci.minute:'';
-  F={tpl:clone(t),fmt:S.fmt,goalId:t.recordGoal?uidGen():null,input:{spieler:'',free:false,minute:(t.ask.minute&&t.ask.minute!=='aus')?autoMin:'',wir:(m.wir||0)+(t.recordGoal?1:0),sie:m.sie||0,text:'',showScorers:false},tf:{zoom:1,ox:0,oy:0},photo:null,url:null,cam:{facing:'environment'}};
+  F={tpl:clone(t),fmt:S.fmt,goalId:t.recordGoal?uidGen():null,input:{spieler:'',free:false,minute:(t.ask.minute&&t.ask.minute!=='aus')?autoMin:'',wir:(m.wir||0)+(t.recordGoal?1:0),sie:m.sie||0,text:'',showScorers:false},tf:{zoom:1,ox:0,oy:0},photo:null,url:null,cam:{facing:'environment'},ovr:{},mode:'img'};
   go(needsInput(t)?'input':'source');
 }
 function loadPhoto(file){
   if(!file)return;const url=URL.createObjectURL(file),img=new Image();
-  img.onload=()=>{F.photo=img;F.tf={zoom:1,ox:0,oy:0};F.url=null;F.adjust=false;go('result')};
+  img.onload=()=>{F.photo=img;F.tf={zoom:1,ox:0,oy:0};F.ovr={};F.mode='img';F.url=null;F.adjust=false;go('result')};
   img.onerror=()=>toast('Dieses Bild lässt sich nicht öffnen.');img.src=url;
 }
 $('#fileCam').addEventListener('change',e=>{loadPhoto(e.target.files[0]);e.target.value=''});
 $('#fileGal').addEventListener('change',e=>{loadPhoto(e.target.files[0]);e.target.value=''});
+$('#fileFont').addEventListener('change',async e=>{
+  const f=e.target.files[0];e.target.value='';if(!f)return;
+  try{
+    toast('Schrift wird hochgeladen …');
+    const data=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(f)});
+    const fixed=data.replace(/^data:[^;]*;/,'data:font/'+(/\.woff2$/i.test(f.name)?'woff2':/\.otf$/i.test(f.name)?'otf':'ttf')+';');
+    const r=await call({a:'ovup',data:fixed,name:'schrift-'+f.name});
+    idb.put(r.id,fixed);
+    const set={...S.settings,fonts:[...(S.settings.fonts||[]).filter(x=>x.name!==E.fontName),{name:E.fontName,id:r.id}]};
+    await call({a:'cfg',set});await loadCustomFonts();render();toast('Schrift hinzugefügt');
+  }catch(err){toast('Hochladen ging nicht: '+errText(err))}
+});
 $('#fileOv').addEventListener('change',async e=>{
   const f=e.target.files[0];e.target.value='';if(!f)return;const t=draft()[E.ti],fmt=E.fmt;
   try{
@@ -949,6 +1044,7 @@ document.addEventListener('input',e=>{
   if(el.dataset.md&&MD){MD[el.dataset.md]=el.value;return}
   if(el.id==='m_auto'&&MD){MD.autoMin=el.checked;return}
   if(el.id==='zoom'&&F){F.tf.zoom=parseFloat(el.value);drawAdjust();return}
+  if((el.id==='tx_s'||el.id==='tx_r')&&F){const o=tCur();if(el.id==='tx_s')o.s=parseFloat(el.value);else o.r=parseFloat(el.value);drawText();return}
   if(el.dataset.ed)edApply(el,false);
 });
 document.addEventListener('change',e=>{const el=e.target;if(el.dataset.ed)edApply(el,true)});
@@ -961,7 +1057,7 @@ function edApply(el,isChange){
   if(isChange&&(el.type==='checkbox'||el.tagName==='SELECT'||key==='name'||key==='label'))render();else drawEditor();
 }
 function checkedButtons(k){const all=[...document.querySelectorAll(`[data-pb="${k}"]`)];const on=all.filter(x=>x.checked).map(x=>x.value);return on.length===all.length?[]:on}
-async function savePlayers(list){try{await call({a:'cfg',players:[...new Set(list)]});const a=$('#p_one'),m=$('#p_many');if(a)a.value='';if(m)m.value='';render()}catch(e){toast(errText(e))}}
+function savePlayers(list){const l=[...new Set(list)];S.players=l;render();call({a:'cfg',players:l}).catch(e=>{toast('Nicht gespeichert: '+errText(e));refresh()})}
 function connect(text){
   const c=parseLink(text);
   if(!c){
@@ -999,9 +1095,13 @@ const actions={
   zoomTo(b){setZoom(+b.dataset.v,true)},
   camNative(){go('source');setTimeout(()=>$('#fileCam').click(),50)},
   flowFmt(b){F.fmt=b.dataset.v;render()},
-  resFmt(b){F.fmt=b.dataset.v;F.tf={zoom:1,ox:0,oy:0};F.url=null;render()},
+  resFmt(b){F.fmt=b.dataset.v;F.tf={zoom:1,ox:0,oy:0};F.ovr={};F.url=null;render()},
   async adjust(){F.adjust=true;F.ov=await prepOverlay(F.tpl,F.fmt);await fontsReady;render()},
   adjustDone(){F.adjust=false;F.url=null;render()},
+  async textMode(){F.ov=await prepOverlay(F.tpl,F.fmt);await fontsReady;F.mode='text';render()},
+  textDone(){F.mode='img';F.url=null;render()},
+  textReset(){delete F.ovr[F.tsel];tSync();drawText()},
+  tSel(b){F.tsel=b.dataset.v;render()},
   async share(){
     if(!F.blob)return;
     const file=new File([F.blob],fileName(),{type:'image/jpeg'});
@@ -1012,10 +1112,15 @@ const actions={
   mdOrt(b){MD.ort=b.dataset.v;render()},
   mdstep(b){const k=b.dataset.k;MD[k]=Math.max(0,(MD[k]||0)+ +b.dataset.d);render()},
   mdDelGoal(b){MD.tore=MD.tore.filter(g=>g.id!==b.dataset.id);render()},
-  async mdSave(b){b.disabled=true;try{await call({a:'match',match:MD,resetClock:!!MD.newClock});toast('Spieltag gespeichert');actions.home()}catch(e){b.disabled=false;toast(errText(e))}},
+  mdSave(){const md=clone(MD),old=S.match;S.match={...md,clock:md.newClock?{phase:'none'}:((old&&old.clock)||{phase:'none'})};delete S.match.newClock;F=null;MD=null;E.confirm=null;go('home');toast('Spieltag gespeichert');
+    call({a:'match',match:md,resetClock:!!md.newClock}).then(()=>rerenderSoft()).catch(e=>{toast('Nicht gespeichert: '+errText(e));refresh()})},
   askNewMatch(){E.confirm='newmatch';render()},
   mdNew(){MD={gegner:'',ort:'heim',datum:todayISO(),anstoss:'15:00',wir:0,sie:0,tore:[],autoMin:MD.autoMin!==false,newClock:true};E.confirm=null;render()},
-  async clock(b){b.disabled=true;try{await call({a:'clock',cmd:b.dataset.v});render()}catch(e){b.disabled=false;toast(errText(e))}},
+  clock(b){const cmd=b.dataset.v,now=Date.now()+S.off,m=S.match||{gegner:'',ort:'heim',tore:[],wir:0,sie:0},c=m.clock||{phase:'none'};
+    if(cmd==='h1')m.clock={phase:'h1',start:now,base:0};else if(cmd==='h2')m.clock={phase:'h2',start:now,base:45};
+    else{const ci=clockInfo();m.clock={phase:cmd,at:(c.phase==='h1'||c.phase==='h2')?c.base*60000+(now-c.start):(c.at||0)}}
+    S.match=m;render();
+    call({a:'clock',cmd}).then(()=>render()).catch(e=>{toast('Uhr nicht gespeichert: '+errText(e));refresh()})},
   askClockReset(){E.confirm='clockreset';render()},
   async clockReset(){try{await call({a:'clock',cmd:'reset'});E.confirm=null;render();toast('Uhr zurückgesetzt')}catch(e){toast(errText(e))}},
   cancelConfirm(){E.confirm=null;render()},
@@ -1036,7 +1141,8 @@ const actions={
   ovUpload(){$('#fileOv').click()},
   ovRemove(){draft()[E.ti].overlay[E.fmt]=null;edOvKey='';markDirty(true)},
   tplDiscard(){E.draft=null;E.dirty=false;edOvKey='';render()},
-  async tplSave(b){b.disabled=true;const d=draft();try{E.dirty=false;await call({a:'cfg',tpl:d});S.templates=clone(d);E.draft=null;render();toast('Gespeichert. Alle sehen es jetzt am Handy.')}catch(e){E.dirty=true;b.disabled=false;toast(errText(e))}},
+  async tplSave(b){b.disabled=true;const d=clone(draft());S.templates=d;E.dirty=false;E.draft=null;render();
+    try{await call({a:'cfg',tpl:d});toast('Gespeichert. Alle sehen es jetzt am Handy.')}catch(e){E.draft=d;E.dirty=true;render();toast('Nicht gespeichert: '+errText(e))}},
   plAdd(){const v=$('#p_one').value.trim();if(v)savePlayers([...S.players,v])},
   plAddMany(){const v=$('#p_many').value.split('\n').map(x=>x.trim()).filter(Boolean);if(v.length)savePlayers([...S.players,...v])},
   plDel(b){savePlayers(S.players.filter(n=>n!==b.dataset.v))},
@@ -1051,6 +1157,8 @@ const actions={
   askPDel(b){E.confirm='p'+b.dataset.id;render()},
   async pDel(b){try{await call({a:'pdel',id:b.dataset.id});E.confirm=null;E.openP=null;render()}catch(e){toast(errText(e))}},
   async meSave(){try{await call({a:'cfg',set:{...S.settings,admin:$('#me_n').value.trim()}});toast('Gespeichert')}catch(e){toast(errText(e))}},
+  fontUp(){const n=$('#f_name').value.trim();if(!n){toast('Gib der Schrift zuerst einen Namen.');return}E.fontName=n;$('#fileFont').click()},
+  fontDel(b){const set={...S.settings,fonts:(S.settings.fonts||[]).filter(f=>f.id!==b.dataset.v)};S.settings=set;render();call({a:'cfg',set}).catch(e=>toast(errText(e)))},
   async clubSave(){try{await call({a:'cfg',set:{...S.settings,verein:$('#c_v').value.trim()||'SV Etteln',farbe:$('#c_f').value,akzent:$('#c_a').value}});render();toast('Gespeichert')}catch(e){toast(errText(e))}},
   sheetClose(){E.sheet=null;render()},
   sheetBg(b,e){if(e.target===b){E.sheet=null;render()}},
@@ -1072,7 +1180,6 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
   if(cached){take(cached);S.view='home'}else S.view='loading';
   render();refresh();
   setInterval(()=>{if(S.view==='home'&&document.visibilityState==='visible')refresh()},15000);
-  call({a:'seen'}).catch(()=>{});
 })();
 
 </script>
