@@ -48,7 +48,7 @@
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html { background: var(--bg2); -webkit-text-size-adjust: 100%; overflow-x: hidden; }
-body { margin: 0; background: var(--bg2); color: var(--fg); font-family: var(--font); font-weight: 500; font-size: 15px; line-height: 1.35; padding-inline: 16px; padding-block: 14px 40px; }
+body { margin: 0; background: var(--bg2); color: var(--fg); font-family: var(--font); font-weight: 500; font-size: 15px; line-height: 1.35; padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px)); padding-block: calc(14px + env(safe-area-inset-top, 0px)) calc(40px + env(safe-area-inset-bottom, 0px)); }
 body::before { content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none; background-color: var(--bg);
   background-image:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='600' viewBox='0 0 600 600'%3E%3Cg fill='none' stroke='white' stroke-opacity='0.07' stroke-width='3'%3E%3Ccircle cx='300' cy='300' r='150'/%3E%3Cline x1='0' y1='300' x2='600' y2='300'/%3E%3C/g%3E%3C/svg%3E"),
@@ -280,6 +280,16 @@ div.note p { flex: 1 1 180px; text-align: left; }
 .uhr.laeuft .ck::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #3fdc7e; margin-right: 8px; vertical-align: middle; animation: atmen 1.2s ease-in-out infinite; }
 @keyframes atmen { 50% { opacity: .35; } }
 .btn.gold { background: var(--gold); color: var(--gold-fg); }
+
+.cambox video { transform-origin: 50% 50%; transition: transform .08s linear; }
+.cambox canvas { touch-action: none; }
+.zlab { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); background: rgba(0,0,0,.55); color: #fff; font-weight: 800; font-size: .9rem; border-radius: 999px; padding: 4px 12px; }
+.zooms { display: flex; gap: 8px; justify-content: center; min-height: 36px; }
+.zooms button { min-width: 44px; height: 36px; border-radius: 999px; border: 0; background: rgba(255,255,255,.16); color: #fff; font-weight: 800; font-size: .8rem; }
+.zooms button[aria-pressed="true"] { background: var(--gold); color: var(--gold-fg); }
+.camnative { border: 0; background: none; color: rgba(255,255,255,.8); font-weight: 700; font-size: .85rem; text-decoration: underline; padding: 6px; }
+.cambox { max-height: calc(100dvh - 230px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); width: min(100%, calc((100dvh - 230px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) * var(--ar, .5625))); }
+.cam { gap: 14px; }
 </style>
 </head>
 <body>
@@ -613,8 +623,10 @@ function vSource(){
 }
 function vCam(){
   const {w,h:H}=FMT[F.fmt];
-  return `<div class="cam"><div class="cambox" style="aspect-ratio:${w}/${H};--ar:${(w/H).toFixed(4)}"><video id="vid" playsinline muted autoplay class="${F.cam.facing==='user'?'mirror':''}"></video><canvas id="camOv" width="${w}" height="${H}"></canvas></div>
-  <div class="camctl"><button class="rad" data-act="camClose" aria-label="Schließen">${IC.x}</button><button class="shutter" data-act="shoot" aria-label="Auslösen"></button><button class="rad" data-act="camFlip" aria-label="Kamera wechseln">${IC.flip}</button></div></div>`;
+  return `<div class="cam"><div class="cambox" style="aspect-ratio:${w}/${H};--ar:${(w/H).toFixed(4)}"><video id="vid" playsinline muted autoplay class="${F.cam.facing==='user'?'mirror':''}"></video><canvas id="camOv" width="${w}" height="${H}"></canvas><span class="zlab" id="zlab" hidden></span></div>
+  <div class="zooms" id="zooms"></div>
+  <div class="camctl"><button class="rad" data-act="camClose" aria-label="Schließen">${IC.x}</button><button class="shutter" data-act="shoot" aria-label="Auslösen"></button><button class="rad" data-act="camFlip" aria-label="Kamera wechseln">${IC.flip}</button></div>
+  <button class="camnative" data-act="camNative">iPhone-Kamera öffnen</button></div>`;
 }
 function vResult(){
   const share=!!(navigator.canShare&&navigator.share);
@@ -797,28 +809,68 @@ function markDirty(re){E.dirty=true;if(re)render();else updateBar()}
 function updateBar(){const sb=$('.bar');if(!sb)return;sb.querySelector('.txt b').textContent=E.dirty?'Nicht gespeichert':'Alles gespeichert';const s=sb.querySelector('[data-act=tplSave]');if(s)s.disabled=!E.dirty;if(E.dirty&&!sb.querySelector('[data-act=tplDiscard]')){const d=document.createElement('button');d.className='btn hell';d.dataset.act='tplDiscard';d.textContent='Verwerfen';sb.insertBefore(d,s)}}
 
 // ---------- Live-Kamera ----------
-let camStream=null,camLoop=0;
+let camStream=null,camTrack=null,camZoom={hw:false,min:1,max:4,z:1},zoomRaf=0;
+async function getStream(facing){
+  const base={facingMode:{ideal:facing},width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30}};
+  try{return await navigator.mediaDevices.getUserMedia({video:{...base,zoom:true},audio:false})}
+  catch(e){if(e&&e.name==='NotAllowedError')throw e;return await navigator.mediaDevices.getUserMedia({video:base,audio:false})}
+}
 async function startCam(){
   const v=$('#vid');if(!v)return;
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){camFallback();return}
   try{
     stopCam();
-    camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:F.cam.facing},width:{ideal:1920},height:{ideal:1920}},audio:false});
+    camStream=await getStream(F.cam.facing);
     if(S.view!=='cam'){stopCam();return}
+    camTrack=camStream.getVideoTracks()[0];
     v.srcObject=camStream;await v.play().catch(()=>{});
   }catch(e){camFallback();return}
+  // Zoom: echter Kamera-Zoom, wenn das Handy ihn anbietet, sonst Ausschnitt-Zoom
+  let caps={};try{caps=camTrack.getCapabilities?camTrack.getCapabilities():{}}catch(e){}
+  if(caps.zoom&&caps.zoom.max>caps.zoom.min){camZoom={hw:true,min:caps.zoom.min,max:Math.min(caps.zoom.max,15),z:1};try{const st=camTrack.getSettings();if(st.zoom)camZoom.z=st.zoom}catch(e){}}
+  else camZoom={hw:false,min:1,max:5,z:1};
+  setZoom(Math.max(camZoom.min,Math.min(camZoom.max,1)),true);
+  renderZoomPills();
   await fontsReady;
   const ov=await prepOverlay(F.tpl,F.fmt),c=$('#camOv');if(!c)return;
   const {w,h:H}=FMT[F.fmt];
   renderCanvas(c.getContext('2d'),{W:w,H,tpl:F.tpl,fmt:F.fmt,vars:buildVars(F.input,F.goalId),ov,clear:true});
 }
-function stopCam(){if(camStream){camStream.getTracks().forEach(t=>t.stop());camStream=null}}
+function setZoom(z,now){
+  z=Math.max(camZoom.min,Math.min(camZoom.max,z));camZoom.z=z;
+  const v=$('#vid'),lab=$('#zlab');
+  if(lab){lab.hidden=false;lab.textContent=(Math.round(z*10)/10).toString().replace('.',',')+'×';clearTimeout(lab._t);lab._t=setTimeout(()=>{lab.hidden=true},900)}
+  document.querySelectorAll('.zooms button').forEach(b=>b.setAttribute('aria-pressed',String(Math.abs(+b.dataset.v-z)<.05)));
+  if(camZoom.hw){
+    if(v)v.style.transform=F.cam.facing==='user'?'scaleX(-1)':'';
+    cancelAnimationFrame(zoomRaf);
+    const go=()=>{try{camTrack&&camTrack.applyConstraints({advanced:[{zoom:camZoom.z}]})}catch(e){}};
+    if(now)go();else zoomRaf=requestAnimationFrame(go);
+  }else if(v){v.style.transform=`scale(${z})`+(F.cam.facing==='user'?' scaleX(-1)':'')}
+}
+function renderZoomPills(){
+  const el=$('#zooms');if(!el)return;
+  const opts=[.5,1,2,3,5].filter(x=>x>=camZoom.min-.01&&x<=camZoom.max+.01);
+  el.innerHTML=opts.map(x=>`<button data-act="zoomTo" data-v="${x}" aria-pressed="${Math.abs(x-camZoom.z)<.05}">${String(x).replace('.',',')}×</button>`).join('');
+}
+// Zoomen mit zwei Fingern auf dem Kamerabild
+const camPtrs=new Map();let camPinch=null;
+document.addEventListener('pointerdown',e=>{if(e.target.id!=='camOv')return;e.target.setPointerCapture(e.pointerId);camPtrs.set(e.pointerId,{x:e.clientX,y:e.clientY});if(camPtrs.size===2){const[a,b]=[...camPtrs.values()];camPinch={d:Math.hypot(a.x-b.x,a.y-b.y),z:camZoom.z}}});
+document.addEventListener('pointermove',e=>{if(!camPtrs.has(e.pointerId))return;camPtrs.set(e.pointerId,{x:e.clientX,y:e.clientY});if(camPtrs.size===2&&camPinch){const[a,b]=[...camPtrs.values()];setZoom(camPinch.z*Math.hypot(a.x-b.x,a.y-b.y)/camPinch.d)}});
+['pointerup','pointercancel'].forEach(n=>document.addEventListener(n,e=>{camPtrs.delete(e.pointerId);if(camPtrs.size<2)camPinch=null}));
+function stopCam(){if(camStream){camStream.getTracks().forEach(t=>t.stop());camStream=null;camTrack=null}}
 function camFallback(){stopCam();toast('Die Kamera lässt sich hier nicht live öffnen. Die iPhone-Kamera öffnet sich stattdessen.');S.view='source';render();setTimeout(()=>$('#fileCam').click(),50)}
 function shoot(){
   const v=$('#vid');if(!v||!v.videoWidth)return;
-  const {w,h:H}=FMT[F.fmt],c=document.createElement('canvas');c.width=w;c.height=H;
-  drawCover(c.getContext('2d'),v,w,H,null,F.cam.facing==='user');
-  const box=$('.cambox');if(box){box.classList.add('blitz')}
+  // Foto in voller Auflösung des Kamerabilds behalten; erst beim Zusammenbauen wird auf das Story-Format gerechnet
+  const {w,h:H}=FMT[F.fmt],vw=v.videoWidth,vh=v.videoHeight,ar=w/H;
+  let cw=vw,ch=vw/ar;if(ch>vh){ch=vh;cw=vh*ar}
+  const dz=camZoom.hw?1:camZoom.z;cw/=dz;ch/=dz;
+  const c=document.createElement('canvas');c.width=Math.round(cw);c.height=Math.round(ch);
+  const ctx=c.getContext('2d');
+  if(F.cam.facing==='user'){ctx.translate(c.width,0);ctx.scale(-1,1)}
+  ctx.drawImage(v,(vw-cw)/2,(vh-ch)/2,cw,ch,0,0,c.width,c.height);
+  const box=$('.cambox');if(box)box.classList.add('blitz');
   F.photo=c;F.tf={zoom:1,ox:0,oy:0};F.url=null;F.adjust=false;
   setTimeout(()=>go('result'),180);
 }
@@ -827,9 +879,10 @@ function shoot(){
 async function compose(){
   const {w,h:H}=FMT[F.fmt],c=document.createElement('canvas');c.width=w;c.height=H;
   await fontsReady;const ov=await prepOverlay(F.tpl,F.fmt);F.ov=ov;
+  const cx=c.getContext('2d');cx.imageSmoothingEnabled=true;cx.imageSmoothingQuality='high';
   clampTf(F.photo,w,H,F.tf);
   renderCanvas(c.getContext('2d'),{W:w,H,tpl:F.tpl,fmt:F.fmt,vars:buildVars(F.input,F.goalId),photo:F.photo,tf:F.tf,ov});
-  const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',.92));
+  const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',.95));
   if(F.url)URL.revokeObjectURL(F.url);F.blob=blob;F.url=URL.createObjectURL(blob);
   const img=$('#outImg');if(img)img.src=F.url;
   commitMatch();
@@ -911,7 +964,11 @@ function checkedButtons(k){const all=[...document.querySelectorAll(`[data-pb="${
 async function savePlayers(list){try{await call({a:'cfg',players:[...new Set(list)]});const a=$('#p_one'),m=$('#p_many');if(a)a.value='';if(m)m.value='';render()}catch(e){toast(errText(e))}}
 function connect(text){
   const c=parseLink(text);
-  if(!c){toast('Das ist kein gültiger Link.');return false}
+  if(!c){
+    const t=String(text||'');
+    if(/script\.google\.com\/.*\/dev(\?|$)/.test(t))toast('Das ist der Test-Link (endet auf /dev). Nimm die Web-App-Adresse aus „Bereitstellungen verwalten“ (endet auf /exec) und häng ?k=… an.');
+    else toast('Das ist kein gültiger Link.');
+    return false}
   S.con=c;ls.set('sb-con',c);ls.del('sb-data');S.err='';S.view='loading';render();refresh();return true;
 }
 
@@ -939,6 +996,8 @@ const actions={
   camClose(){go('source')},
   camFlip(){F.cam.facing=F.cam.facing==='user'?'environment':'user';render()},
   shoot(){shoot()},
+  zoomTo(b){setZoom(+b.dataset.v,true)},
+  camNative(){go('source');setTimeout(()=>$('#fileCam').click(),50)},
   flowFmt(b){F.fmt=b.dataset.v;render()},
   resFmt(b){F.fmt=b.dataset.v;F.tf={zoom:1,ox:0,oy:0};F.url=null;render()},
   async adjust(){F.adjust=true;F.ov=await prepOverlay(F.tpl,F.fmt);await fontsReady;render()},
