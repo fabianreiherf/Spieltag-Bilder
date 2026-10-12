@@ -294,6 +294,15 @@ div.note p { flex: 1 1 180px; text-align: left; }
 .cam { gap: 14px; }
 .chipbtn.hellchip { background: rgba(255,255,255,.14); color: #fff; }
 .chipbtn.hellchip[aria-pressed="true"] { background: #fff; color: #20317f; }
+.farben { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.farbe { width: 36px; height: 36px; border-radius: 50%; border: 2px solid var(--line); padding: 0; position: relative; overflow: hidden; flex: none; }
+.farbe[aria-pressed="true"] { outline: 3px solid var(--accent-2); outline-offset: 2px; }
+.farbe.bunt { background: conic-gradient(#f44, #fd4, #4d4, #4df, #44f, #f4f, #f44); cursor: pointer; }
+.farbe.bunt input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+.pipette { width: 40px; height: 40px; border-radius: 12px; border: 1.5px solid var(--line); background: var(--field); color: var(--accent); display: grid; place-items: center; }
+.pipette svg { width: 22px; height: 22px; }
+.pipette.an { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+#tx_t { font-weight: 700; }
 </style>
 </head>
 <body>
@@ -487,13 +496,14 @@ function renderCanvas(ctx,o){
   if(ov)ctx.drawImage(ov,0,0,W,H);else drawPlaceholder(ctx,W,H,tpl,fmt);
   const boxes=[];
   (tpl.elements||[]).forEach((el,i)=>{
-    const t=resolveText(el.text,vars);if(t==null||t==='')return;
-    const p=el[fmt]||el.story,m=(ovr&&ovr[el.id])||null;
+    const m=(ovr&&ovr[el.id])||null;
+    const t=(m&&typeof m.txt==='string')?m.txt:resolveText(el.text,vars);if(t==null||t.trim()==='')return;
+    const p=el[fmt]||el.story;
     const size=p.size*W/1080*(m?m.s:1),lh=size*1.08,upper=el.upper||FONT_UPPER[el.font];
     const lines=t.split('\n').map(l=>upper?l.toUpperCase():l);
     const x=(p.x+(m?m.dx:0))*W,y=(p.y+(m?m.dy:0))*H,rot=((Number(el.rot)||0)+(m?m.r:0))*Math.PI/180;
     ctx.save();ctx.translate(x,y);if(rot)ctx.rotate(rot);
-    ctx.font=fontStr(el,size);ctx.textAlign=el.align||'center';ctx.textBaseline='middle';ctx.fillStyle=el.color||'#fff';
+    ctx.font=fontStr(el,size);ctx.textAlign=el.align||'center';ctx.textBaseline='middle';ctx.fillStyle=(m&&m.c)||el.color||'#fff';
     if(el.shadow){ctx.shadowColor='rgba(0,0,0,.55)';ctx.shadowBlur=size*.14;ctx.shadowOffsetY=size*.04}
     let mw=0;lines.forEach((l,j)=>{ctx.fillText(l,0,j*lh);mw=Math.max(mw,ctx.measureText(l).width)});
     ctx.restore();
@@ -665,7 +675,10 @@ function vCam(){
   <div class="camctl"><button class="rad" data-act="camClose" aria-label="Schließen">${IC.x}</button><button class="shutter" data-act="shoot" aria-label="Auslösen"></button><button class="rad" data-act="camFlip" aria-label="Kamera wechseln">${IC.flip}</button></div>
   <button class="camnative" data-act="camNative">iPhone-Kamera öffnen</button></div>`;
 }
-function movableIds(){return (F.boxes||[]).filter(b=>isMovable(F.tpl.elements[b.i])).map(b=>b.id)}
+function movableIds(){return F.tpl.elements.filter(isMovable).map(e=>e.id)}
+function curText(id){const el=F.tpl.elements.find(e=>e.id===id),m=F.ovr[id];if(m&&typeof m.txt==='string')return m.txt;const t=el?resolveText(el.text,buildVars(F.input,F.goalId)):'';return t||''}
+function curColor(id){const el=F.tpl.elements.find(e=>e.id===id),m=F.ovr[id];return (m&&m.c)||(el&&el.color)||'#ffffff'}
+const SWATCHES=()=>['#ffffff','#000000',S.settings.akzent||'#f2b52c',S.settings.farbe||'#20317f','#e53935','#43a047','#1e88e5','#fdd835'];
 function vResult(){
   const share=!!(navigator.canShare&&navigator.share);
   if(F.mode==='text'){
@@ -675,6 +688,11 @@ function vResult(){
     <div class="stage"><canvas id="txc" class="adj"></canvas></div>
     <p class="note">Text mit dem Finger ziehen. Mit zwei Fingern drehen und größer oder kleiner machen.</p>
     ${els.length>1?`<div class="chips2">${els.map(e=>`<button class="chipbtn hellchip" data-act="tSel" data-v="${h(e.id)}" aria-pressed="${e.id===cur}">${h(e.label||'Text')}</button>`).join('')}</div>`:''}
+    <section class="card"><label class="feld"><span>Text · Enter für neuen Absatz</span><textarea id="tx_t" rows="3">${h(curText(cur))}</textarea></label>
+    <div class="feld"><span>Farbe</span><div class="farben">${SWATCHES().map(c=>`<button class="farbe" data-act="tColor" data-v="${c}" style="background:${c}" aria-label="Farbe ${c}" aria-pressed="${curColor(cur).toLowerCase()===c.toLowerCase()}"></button>`).join('')}
+      <label class="farbe bunt" aria-label="Eigene Farbe"><input type="color" id="tx_c" value="${curColor(cur)}"></label>
+      <button class="pipette${F.picking?' an':''}" data-act="tPick" aria-label="Farbe aus dem Bild nehmen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4.5l5 5M13 6l5 5-9 9H4v-5z"/><path d="M17 3l4 4"/></svg></button></div>
+      ${F.picking?'<p class="hint">Tippe jetzt auf die Stelle im Bild, deren Farbe du willst.</p>':''}</div></section>
     <section class="card"><label class="feld"><span>Größe</span><input type="range" id="tx_s" min="0.3" max="3" step="0.01" value="${o.s}"></label>
     <label class="feld"><span>Drehung</span><input type="range" id="tx_r" min="-180" max="180" step="1" value="${o.r}"></label></section>
     <div class="reihe"><button class="btn glas" data-act="textReset">Zurücksetzen</button><button class="btn weiss" data-act="textDone">Fertig</button></div></div>`;
@@ -962,6 +980,15 @@ function tCur(){if(!F.ovr[F.tsel])F.ovr[F.tsel]={dx:0,dy:0,s:1,r:0};return F.ovr
 function tSync(){const o=F.ovr[F.tsel]||{s:1,r:0},a=$('#tx_s'),b=$('#tx_r');if(a)a.value=o.s;if(b)b.value=Math.round(o.r)}
 document.addEventListener('pointerdown',e=>{
   if(e.target.id!=='txc')return;const c=e.target,r=c.getBoundingClientRect();
+  if(F.picking){
+    const x=Math.round((e.clientX-r.left)*c.width/r.width),y=Math.round((e.clientY-r.top)*c.height/r.height);
+    // Farbe aus dem Bild ohne Texte nehmen
+    const tmp=document.createElement('canvas');tmp.width=c.width;tmp.height=c.height;const tc=tmp.getContext('2d');
+    renderCanvas(tc,{W:c.width,H:c.height,tpl:{...F.tpl,elements:[]},fmt:F.fmt,vars:{},photo:F.photo,tf:F.tf,ov:F.ov});
+    const d=tc.getImageData(Math.max(0,x-2),Math.max(0,y-2),5,5).data;let R=0,G=0,B=0;for(let k=0;k<d.length;k+=4){R+=d[k];G+=d[k+1];B+=d[k+2]}const n=d.length/4;
+    const hex='#'+[R,G,B].map(v=>Math.round(v/n).toString(16).padStart(2,'0')).join('');
+    tCur().c=hex;F.picking=false;render();e.preventDefault();return;
+  }
   if(tPtrs.size===0){const x=(e.clientX-r.left)*c.width/r.width,y=(e.clientY-r.top)*c.height/r.height;const hit=hitBox(F.boxes||[],x,y,b=>isMovable(F.tpl.elements[b.i]));if(hit&&hit.id!==F.tsel){F.tsel=hit.id;document.querySelectorAll('[data-act=tSel]').forEach(q=>q.setAttribute('aria-pressed',String(q.dataset.v===hit.id)));tSync()}}
   c.setPointerCapture(e.pointerId);tPtrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
   if(tPtrs.size===2){const[a,b]=[...tPtrs.values()],o=tCur();tPinch={d:Math.hypot(a.x-b.x,a.y-b.y),ang:Math.atan2(b.y-a.y,b.x-a.x),s:o.s,r:o.r}}
@@ -1044,6 +1071,8 @@ document.addEventListener('input',e=>{
   if(el.dataset.md&&MD){MD[el.dataset.md]=el.value;return}
   if(el.id==='m_auto'&&MD){MD.autoMin=el.checked;return}
   if(el.id==='zoom'&&F){F.tf.zoom=parseFloat(el.value);drawAdjust();return}
+  if(el.id==='tx_t'&&F){tCur().txt=el.value;drawText();return}
+  if(el.id==='tx_c'&&F){tCur().c=el.value;document.querySelectorAll('.farbe[data-act]').forEach(b=>b.setAttribute('aria-pressed','false'));drawText();return}
   if((el.id==='tx_s'||el.id==='tx_r')&&F){const o=tCur();if(el.id==='tx_s')o.s=parseFloat(el.value);else o.r=parseFloat(el.value);drawText();return}
   if(el.dataset.ed)edApply(el,false);
 });
@@ -1099,9 +1128,11 @@ const actions={
   async adjust(){F.adjust=true;F.ov=await prepOverlay(F.tpl,F.fmt);await fontsReady;render()},
   adjustDone(){F.adjust=false;F.url=null;render()},
   async textMode(){F.ov=await prepOverlay(F.tpl,F.fmt);await fontsReady;F.mode='text';render()},
-  textDone(){F.mode='img';F.url=null;render()},
-  textReset(){delete F.ovr[F.tsel];tSync();drawText()},
-  tSel(b){F.tsel=b.dataset.v;render()},
+  textDone(){F.mode='img';F.picking=false;F.url=null;render()},
+  textReset(){delete F.ovr[F.tsel];F.picking=false;render()},
+  tSel(b){F.tsel=b.dataset.v;F.picking=false;render()},
+  tColor(b){tCur().c=b.dataset.v;F.picking=false;render()},
+  tPick(){F.picking=!F.picking;render()},
   async share(){
     if(!F.blob)return;
     const file=new File([F.blob],fileName(),{type:'image/jpeg'});
