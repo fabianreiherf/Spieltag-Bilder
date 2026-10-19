@@ -347,6 +347,7 @@ const FMT={story:{w:1080,h:1920,label:'Story'},post:{w:1080,h:1350,label:'Post'}
 const FONTS={'Modern':[700,800],'Montserrat':[600,800],'Kaushan Script':[400,400],'Bebas Neue':[400,400],'Anton':[400,400],'Barlow Condensed':[600,800],'Oswald':[500,700],'Barlow':[500,700]};
 const PLACEHOLDERS=[['spieler','Spieler'],['minute','Minute'],['tore_heim','Tore Heim'],['tore_gast','Tore Gast'],['heim','Heimteam'],['gast','Gastteam'],['gegner','Gegner'],['verein','Verein'],['mannschaft','1. / 2. Mannschaft'],['datum','Datum: Mo, 19.10.2026'],['datum_kurz','Datum: 19.10.26'],['datum_voll','Datum: 19.10.2026'],['wochentag','Wochentag: Montag'],['anstoss','Anstoß'],['spielstaette','Spielstätte'],['torschuetzen','Torschützen-Liste'],['text','Freitext']];
 const DEFAULT_GEGNER=['Azzurri Calcio PB','BV Bad Lippspringe II','FC Dahl/Dörenhagen II','SC Borchen II','SC GW Holtheim','SG Haaren/Helmern','SG Sintfeld-Diemeltal','SG Wewelsburg/Ahden','SV 21 Büren','SV BW Benhausen','SV Marienloh II','SV Steinhausen','TuS Altenbeken','Türk-Gücü Paderborn','USC Altenautal 21 II'].map(name=>({name,wappen:null}));
+const DEFAULT_GEGNER2=['VfB 1910 Salzkotten II','SV 21 Büren III','FC Dahl/Dörenhagen III','SG Verlar/Mantinghausen II','SG Sintfeld-Diemeltal II','SG Haaren/Helmern II','TuRa Elsen III','SC GW Holtheim II','SG Wewelsburg/Ahden II','TSV Wewer III'].map(name=>({name,wappen:null}));
 const DEF_SETTINGS={verein:'SV Etteln',farbe:'#20317f',akzent:'#f2b52c',admin:''};
 const WH='#ffffff', AC='#f2b52c';
 function mkEl(id,label,text,font,bold,color,s,p,extra){return Object.assign({id,label,text,font,bold,color,align:'center',upper:true,shadow:true,story:{x:.5,y:s[0],size:s[1]},post:{x:.5,y:p[0],size:p[1]}},extra||{})}
@@ -390,7 +391,7 @@ function activeTeam(){
   if(F&&F.team&&['input','source','cam','result'].includes(S.view))return F.team;
   if(MD&&MD.team&&S.view==='match')return MD.team;
   if(S.view==='editor'&&typeof E!=='undefined'&&E.tab==='vorlagen'){const t=(E.draft||S.templates)[E.ti];if(t&&t.team)return t.team}
-  if(S.view==='editor'&&typeof E!=='undefined'&&E.tab==='spieler'&&E.pteam)return E.pteam;
+  if(S.view==='editor'&&typeof E!=='undefined'&&(E.tab==='spieler'||E.tab==='gegner')&&E.pteam)return E.pteam;
   return S.team;
 }
 Object.defineProperty(S,'match',{get(){return S.matches[activeTeam()]||null},set(v){S.matches[activeTeam()]=v}});
@@ -446,7 +447,7 @@ function take(d){
   const sig=JSON.stringify([d.me,d.set,d.tpl,d.players,d.matches,d.pers,d.tafel,d.aushang]);
   if(sig===lastSig&&!E.dirty)return false;lastSig=sig;
   S.me=d.me;S.tafel=d.tafel||null;S.aushang=d.aushang||null;S.settings={...DEF_SETTINGS,...(d.set||{})};S.playersBy=Array.isArray(d.players)?{m1:d.players,m2:[]}:{m1:[],m2:[],...(d.players||{})};S.matches={m1:null,m2:null,...(d.matches||{})};if(d.match&&!d.matches)S.matches.m1=d.match;S.pers=d.pers||[];
-  if(!E.dirty){S.templates=Array.isArray(d.tpl)&&d.tpl.length?d.tpl:defaultTemplates();if(!(S.settings&&S.settings.grMig)&&!S.templates.some(t=>t.noPhoto))S.templates=[...S.templates,grafikTpl('m1'),grafikTpl('m2')];E.draft=null}
+  if(!E.dirty){S.templates=Array.isArray(d.tpl)&&d.tpl.length?d.tpl:defaultTemplates();if(!(S.settings&&S.settings.grMig)&&!S.templates.some(t=>t.noPhoto))S.templates=[...S.templates,grafikTpl('m1'),grafikTpl('m2')];S.templates=S.templates.map(grUpgrade);E.draft=null}
   ls.set('sb-data',d);
   if((S.settings.fonts||[]).length)loadCustomFonts().then(()=>{if(S.view==='editor')drawEditor()});
   return true;
@@ -551,7 +552,7 @@ function drawPlaceholder(ctx,W,H,tpl,fmt){
 // ---------- Wappen ----------
 const crestCache={};
 function crestKey(side,demo){
-  const m=S.match||{},heimSpiel=m.ort!=='auswaerts',own=side==='heim'?heimSpiel:!heimSpiel;
+  const m=S.match||{},heimSpiel=m.ort!=='auswaerts',own=side==='wir'?true:side==='gegner'?false:side==='heim'?heimSpiel:!heimSpiel;
   if(own)return S.settings.wappen?'id:'+S.settings.wappen:'own';
   let id=m.gegnerWappen;
   if(!id&&demo){const g=gegnerList().find(x=>x.wappen);id=g&&g.wappen}
@@ -563,9 +564,10 @@ function crestImg(key){
   if(!c){crestCache[key]={p:(key==='own'?loadImg('icon-wappen.png'):overlayImg(key.slice(3))).then(i=>{crestCache[key].img=i;if(!i)delete crestCache[key];onCrest();return i})}}
   return null;
 }
-function crestReady(demo){return Promise.all(['heim','gast'].map(sd=>{const k=crestKey(sd,demo);if(!k)return null;crestImg(k);return crestCache[k]&&crestCache[k].p}))}
+function crestReady(demo){return Promise.all(['heim','gast','wir','gegner'].map(sd=>{const k=crestKey(sd,demo);if(!k)return null;crestImg(k);return crestCache[k]&&crestCache[k].p}))}
 let crestT=0;function onCrest(){clearTimeout(crestT);crestT=setTimeout(()=>{if(S.view==='tafel'){drawTafel();return}if(S.view==='editor'){if(E.tab==='vorlagen')drawEditor();else render()}else if(S.view==='result'&&F&&F.mode==='text')drawText()},30)}
-const gegnerList=()=>(Array.isArray(S.settings.gegner)?S.settings.gegner:DEFAULT_GEGNER).slice().sort((a,b)=>a.name.localeCompare(b.name,'de'));
+const gegnerKey=()=>activeTeam()==='m2'?'gegner2':'gegner';
+const gegnerList=()=>{const k=gegnerKey();return (Array.isArray(S.settings[k])?S.settings[k]:k==='gegner2'?DEFAULT_GEGNER2:DEFAULT_GEGNER).slice().sort((a,b)=>a.name.localeCompare(b.name,'de'))};
 function drawTafelBg(ctx,W,H){
   const st=S.settings,g=ctx.createLinearGradient(0,0,W*.3,H);g.addColorStop(0,hexA(st.farbe||'#20317f',1));g.addColorStop(1,'#0b1238');
   ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
@@ -705,18 +707,26 @@ function defaultTafel(){return {id:'tafel',kind:'tafel',name:'Live-Tafel',title:
   mkEl('t6','Torschützen Heim','{torschuetzen_heim}','Montserrat',true,WH,[.8,46],[.8,40],{upper:false,maxw:44}),
   mkEl('t7','Torschützen Gast','{torschuetzen_gast}','Montserrat',true,WH,[.8,46],[.8,40],{upper:false,maxw:44})
 ].map(e=>{if(e.id==='t1'||e.id==='t6'){e.story.x=.27;e.post.x=.27}if(e.id==='t2'||e.id==='t7'){e.story.x=.73;e.post.x=.73}return e})}}
-function grafikTpl(team){const n=team==='m2'?'2':'1';return {id:'gr'+n,name:'Spieltag '+n+'. Mannschaft',title:'',team,noPhoto:true,ask:ask({}),recordGoal:false,overlay:{story:null,post:null},elements:[
+function grafikTpl(team){const n=team==='m2'?'2':'1';return {id:'gr'+n,v:2,name:'Spieltag '+n+'. Mannschaft',title:'',team,noPhoto:true,ask:ask({}),recordGoal:false,overlay:{story:null,post:null},elements:[
   mkEl('g0','Überschrift','{mannschaft}','Montserrat',true,AC,[.1,52],[.1,46]),
   mkEl('g1','Titel','Spieltag','Bebas Neue',false,WH,[.18,170],[.2,150]),
-  {id:'gw1',type:'img',label:'Wappen Heim',src:'heim',shadow:true,rot:0,story:{x:.27,y:.38,size:300},post:{x:.27,y:.42,size:250}},
-  {id:'gw2',type:'img',label:'Wappen Gast',src:'gast',shadow:true,rot:0,story:{x:.73,y:.38,size:300},post:{x:.73,y:.42,size:250}},
-  mkEl('g2','Heimteam','{heim}','Montserrat',true,WH,[.5,58],[.58,50],{maxw:44}),
+  {id:'gw1',type:'img',label:'Wappen eigene Mannschaft',src:'wir',shadow:true,rot:0,story:{x:.27,y:.38,size:300},post:{x:.27,y:.42,size:250}},
+  {id:'gw2',type:'img',label:'Wappen Gegner',src:'gegner',shadow:true,rot:0,story:{x:.73,y:.38,size:300},post:{x:.73,y:.42,size:250}},
+  mkEl('g2','Eigene Mannschaft','{verein}','Montserrat',true,WH,[.5,58],[.58,50],{maxw:44}),
   mkEl('g3','gegen','gegen','Montserrat',true,AC,[.5,40],[.58,34]),
-  mkEl('g4','Gastteam','{gast}','Montserrat',true,WH,[.5,58],[.58,50],{maxw:44}),
+  mkEl('g4','Gegner','{gegner}','Montserrat',true,WH,[.5,58],[.58,50],{maxw:44}),
   mkEl('g5','Datum','{wochentag}, {datum_kurz}','Montserrat',true,WH,[.66,60],[.74,52]),
   mkEl('g6','Anstoß','{anstoss} Uhr','Bebas Neue',false,AC,[.74,120],[.82,100]),
   mkEl('g7','Spielstätte','{spielstaette}','Montserrat',true,WH,[.82,44],[.9,38],{upper:false,maxw:90})
 ].map(e=>{if(e.id==='g2'){e.story.x=.27;e.story.y=.52;e.post.x=.27;e.post.y=.6}if(e.id==='g4'){e.story.x=.73;e.story.y=.52;e.post.x=.73;e.post.y=.6}if(e.id==='g3'){e.story.y=.38;e.post.y=.42}return e})}}
+function grUpgrade(t){
+  if(!t||!/^gr[12]$/.test(t.id)||t.v>=2)return t;
+  t=clone(t);t.v=2;(t.elements||[]).forEach(e=>{
+    if(e.id==='gw1'&&e.src==='heim'){e.src='wir';e.label='Wappen eigene Mannschaft'}
+    if(e.id==='gw2'&&e.src==='gast'){e.src='gegner';e.label='Wappen Gegner'}
+    if(e.id==='g2'&&e.text==='{heim}'){e.text='{verein}';e.label='Eigene Mannschaft'}
+    if(e.id==='g4'&&e.text==='{gast}'){e.text='{gegner}';e.label='Gegner'}});
+  return t}
 function tafelTpl(){return (S.tafel&&S.tafel.tpl)||defaultTafel()}
 function tafelActive(){
   const t=S.tafel;if(!t||!t.on)return false;
@@ -982,8 +992,8 @@ function edTemplates(){
    <section class="card"><div class="title">Texte und Wappen auf dem Bild</div>
     <div class="chips2">${t.elements.map((x,i)=>`<button class="chipbtn" data-act="elSel" data-i="${i}" aria-pressed="${i===E.ei}">${h(x.label||'Text')}</button>`).join('')}<button class="chipbtn plus" data-act="elAdd">+ Text</button><button class="chipbtn plus" data-act="elAddImg">+ Wappen</button></div>
     ${el&&el.type==='img'?`<label class="feld"><span>Bezeichnung</span><input id="e_label" data-ed="e.label" value="${h(el.label)}"></label>
-    <label class="feld"><span>Welches Wappen</span><select id="e_src" data-ed="e.src">${[['heim','Wappen Heimmannschaft'],['gast','Wappen Gastmannschaft']].map(([k,l])=>`<option value="${k}" ${el.src===k?'selected':''}>${l}</option>`).join('')}</select></label>
-    <p class="hint">Bei Heimspielen ist das Heim-Wappen deins, bei Auswärtsspielen das des Gegners. Hat der Gegner kein Wappen, bleibt die Stelle leer.</p>
+    <label class="feld"><span>Welches Wappen</span><select id="e_src" data-ed="e.src">${[['heim','Wappen Heimmannschaft'],['gast','Wappen Gastmannschaft'],['wir','Eigenes Wappen (immer)'],['gegner','Wappen Gegner (immer)']].map(([k,l])=>`<option value="${k}" ${el.src===k?'selected':''}>${l}</option>`).join('')}</select></label>
+    <p class="hint">Heim/Gast wechseln je nach Heim- oder Auswärtsspiel. „Eigenes Wappen“ und „Wappen Gegner“ bleiben immer an ihrer Stelle. Hat der Gegner kein Wappen, bleibt die Stelle leer.</p>
     <div class="drei"><label class="feld"><span>Höhe px</span><input type="number" id="e_size" data-ed="p.size" value="${Math.round(fp.size)}" min="20" max="1500"></label>
      <label class="feld"><span>X %</span><input type="number" id="e_x" data-ed="p.x" value="${Math.round(fp.x*1000)/10}" step="0.5"></label>
      <label class="feld"><span>Y %</span><input type="number" id="e_y" data-ed="p.y" value="${Math.round(fp.y*1000)/10}" step="0.5"></label></div>
@@ -1048,11 +1058,13 @@ function edPeople(){
 }
 function crestThumb(id){const k='id:'+id,img=crestImg(k);return img?`<img class="wthumb" src="${img.src}" alt="">`:'<span class="wthumb leer" aria-hidden="true"></span>'}
 function edGegner(){
+  E.pteam=E.pteam||'m1';
   const list=gegnerList();
-  return `<div class="cols"><section class="card"><div class="title">Verein hinzufügen</div>
+  return `<div class="seg hell teamseg" role="group">${TEAMS.map(([k,l])=>`<button data-act="pTeam" data-v="${k}" aria-pressed="${E.pteam===k}">${l}</button>`).join('')}</div>
+  <div class="cols"><section class="card"><div class="title">Gegner ${teamLabel(E.pteam)} hinzufügen</div>
    <div class="reihe"><input class="eingabe" id="g_name" placeholder="Name des Vereins" autocomplete="off" style="flex:3 1 200px"><button class="btn" data-act="gAdd">Hinzufügen</button></div>
    <p class="hint">Wappen am besten als PNG mit durchsichtigem Hintergrund, quadratisch, mindestens 400 Pixel hoch. Beim Spieltag wählst du den Gegner aus dieser Liste, das Wappen kommt dann automatisch mit. Ein Verein, der hier fehlt, lässt sich beim Spieltag auch frei eintippen.</p></section>
-  <section class="card"><div class="head"><div class="title">Gegner-Liste</div><span class="stat">${list.length}</span></div>
+  <section class="card"><div class="head"><div class="title">Gegner-Liste ${teamLabel(E.pteam)}</div><span class="stat">${list.length}</span></div>
    <div class="list">${list.map(g=>`<div class="row">${g.wappen?crestThumb(g.wappen):'<span class="wthumb leer" aria-hidden="true"></span>'}<span class="mid"><b>${h(g.name)}</b><small>${g.wappen?'Wappen hinterlegt':'Ohne Wappen'}</small></span>
     <button class="mini" data-act="gCrest" data-v="${h(g.name)}">${g.wappen?'Wappen ändern':'Wappen'}</button>${g.wappen?`<button class="mini" data-act="gCrestDel" data-v="${h(g.name)}">Wappen weg</button>`:''}${E.confirm==='g'+g.name?`<button class="mini scharf" data-act="gDel" data-v="${h(g.name)}">Wirklich</button>`:`<button class="mini" data-act="askGDel" data-v="${h(g.name)}">Entfernen</button>`}</div>`).join('')}</div></section></div>`;
 }
@@ -1399,7 +1411,7 @@ function edApply(el,isChange){
   if(isChange&&(el.type==='checkbox'||el.tagName==='SELECT'||key==='name'||key==='label'))render();else drawEditor();
 }
 function checkedButtons(k){const all=[...document.querySelectorAll(`[data-pb="${k}"]`)];const on=all.filter(x=>x.checked).map(x=>x.value);return on.length===all.length?[]:on}
-function saveGegner(list){const set={...S.settings,gegner:list};S.settings=set;render();call({a:'cfg',set}).catch(e=>{toast('Nicht gespeichert: '+errText(e));refresh()})}
+function saveGegner(list){const set={...S.settings,[gegnerKey()]:list};S.settings=set;render();call({a:'cfg',set}).catch(e=>{toast('Nicht gespeichert: '+errText(e));refresh()})}
 function savePlayers(list){const l=[...new Set(list)],tm=E.pteam||'m1';S.playersBy[tm]=l;render();call({a:'cfg',players:l,team:tm}).catch(e=>{toast('Nicht gespeichert: '+errText(e));refresh()})}
 function connect(text){
   const c=parseLink(text);
