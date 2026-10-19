@@ -343,7 +343,7 @@ code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85em; 
 // ---------- Grundwerte ----------
 const FMT={story:{w:1080,h:1920,label:'Story'},post:{w:1080,h:1350,label:'Post'}};
 const FONTS={'Modern':[700,800],'Montserrat':[600,800],'Kaushan Script':[400,400],'Bebas Neue':[400,400],'Anton':[400,400],'Barlow Condensed':[600,800],'Oswald':[500,700],'Barlow':[500,700]};
-const PLACEHOLDERS=[['spieler','Spieler'],['minute','Minute'],['tore_heim','Tore Heim'],['tore_gast','Tore Gast'],['heim','Heimteam'],['gast','Gastteam'],['gegner','Gegner'],['verein','Verein'],['datum','Datum'],['anstoss','Anstoß'],['torschuetzen','Torschützen-Liste'],['text','Freitext']];
+const PLACEHOLDERS=[['spieler','Spieler'],['minute','Minute'],['tore_heim','Tore Heim'],['tore_gast','Tore Gast'],['heim','Heimteam'],['gast','Gastteam'],['gegner','Gegner'],['verein','Verein'],['datum','Datum: Mo, 19.10.2026'],['datum_kurz','Datum: 19.10.26'],['datum_voll','Datum: 19.10.2026'],['wochentag','Wochentag: Montag'],['anstoss','Anstoß'],['spielstaette','Spielstätte'],['torschuetzen','Torschützen-Liste'],['text','Freitext']];
 const DEFAULT_GEGNER=['Azzurri Calcio PB','BV Bad Lippspringe II','FC Dahl/Dörenhagen II','SC Borchen II','SC GW Holtheim','SG Haaren/Helmern','SG Sintfeld-Diemeltal','SG Wewelsburg/Ahden','SV 21 Büren','SV BW Benhausen','SV Marienloh II','SV Steinhausen','TuS Altenbeken','Türk-Gücü Paderborn','USC Altenautal 21 II'].map(name=>({name,wappen:null}));
 const DEF_SETTINGS={verein:'SV Etteln',farbe:'#20317f',akzent:'#f2b52c',admin:''};
 const WH='#ffffff', AC='#f2b52c';
@@ -390,6 +390,12 @@ const ls={get(k){try{return JSON.parse(localStorage.getItem(k)||'null')}catch(e)
 let toastT=0;
 function toast(msg){let t=$('.toast');if(!t){t=document.createElement('div');t.className='toast';t.setAttribute('role','status');document.body.appendChild(t)}t.textContent=msg;requestAnimationFrame(()=>t.classList.add('show'));clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2800)}
 function nachname(n){const w=String(n||'').trim().split(/\s+/);return (w[w.length-1]||'').toLowerCase()}
+function dParts(d){if(!d)return null;const x=new Date(d+'T12:00:00');return isNaN(x)?null:x}
+const p2=n=>String(n).padStart(2,'0');
+function datumKurz(d){const x=dParts(d);return x?p2(x.getDate())+'.'+p2(x.getMonth()+1)+'.'+String(x.getFullYear()).slice(2):''}
+function datumVoll(d){const x=dParts(d);return x?p2(x.getDate())+'.'+p2(x.getMonth()+1)+'.'+x.getFullYear():''}
+function wochentag(d){const x=dParts(d);return x?x.toLocaleDateString('de-DE',{weekday:'long'}):''}
+function dateVars(d){return {datum:fmtDate(d),datum_kurz:datumKurz(d),datum_voll:datumVoll(d),wochentag:wochentag(d)}}
 function fmtDate(d){if(!d)return'';const x=new Date(d+'T12:00:00');if(isNaN(x))return d;return x.toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit',year:'numeric'}).replace(/\.,/,',')}
 const todayISO=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
 
@@ -659,7 +665,7 @@ function buildVars(inp,goalId){
   const m=S.match||{},verein=S.settings.verein||'',g=m.gegner||'',heimSpiel=m.ort!=='auswaerts';
   const wir=inp.wir!=null?inp.wir:(m.wir||0),sie=inp.sie!=null?inp.sie:(m.sie||0);
   return {verein,gegner:g,heim:heimSpiel?verein:g,gast:heimSpiel?g:verein,tore_heim:heimSpiel?wir:sie,tore_gast:heimSpiel?sie:wir,
-    spieler:inp.spieler||'',minute:inp.minute||'',datum:fmtDate(m.datum),anstoss:m.anstoss||'',text:inp.text||'',
+    spieler:inp.spieler||'',minute:inp.minute||'',...dateVars(m.datum),anstoss:m.anstoss||'',spielstaette:m.platz||'',text:inp.text||'',
     torschuetzen:inp.showScorers?goalsGrouped(goalId).join('\n'):''};
 }
 function tafelVars(sample){
@@ -668,7 +674,7 @@ function tafelVars(sample){
   const sc=sample&&!(m.tore||[]).length?["Schmidt 12'","Meier 41'"]:goalsGrouped(null);
   const zeit=ci?ci.text:(sample?'67:12':''),phase=ci?ci.label:(sample?'2. Halbzeit':'');
   return {verein,gegner:g,heim:heimSpiel?verein:g,gast:heimSpiel?g:verein,tore_heim:heimSpiel?wir:sie,tore_gast:heimSpiel?sie:wir,
-    spielzeit:zeit,phase,datum:fmtDate(m.datum||(sample?todayISO():'')),anstoss:m.anstoss||(sample?'15:00':''),
+    spielzeit:zeit,phase,...dateVars(m.datum||(sample?todayISO():'')),anstoss:m.anstoss||(sample?'15:00':''),spielstaette:m.platz||(sample?'Sportplatz Etteln':''),
     torschuetzen:sc.join('\n'),torschuetzen_heim:heimSpiel?sc.join('\n'):'',torschuetzen_gast:heimSpiel?'':sc.join('\n'),text:''};
 }
 function defaultTafel(){return {id:'tafel',kind:'tafel',name:'Live-Tafel',title:'',ask:ask({}),recordGoal:false,overlay:{story:null,post:null},elements:[
@@ -693,7 +699,7 @@ function tafelBackAt(){const t=S.tafel,c=S.match&&S.match.clock;if(!t||!t.on||!c
 function sampleVars(){
   const m=S.match||{},verein=S.settings.verein,g=m.gegner||'TuS Beispielstadt',heimSpiel=m.ort!=='auswaerts';
   return {verein,gegner:g,heim:heimSpiel?verein:g,gast:heimSpiel?g:verein,tore_heim:2,tore_gast:1,spieler:'Max Mustermann',minute:'67',
-    datum:fmtDate(m.datum||todayISO()),anstoss:m.anstoss||'15:00',text:'Starke Leistung, Jungs!',torschuetzen:"Schmidt 12'\nMeier 41'"};
+    ...dateVars(m.datum||todayISO()),anstoss:m.anstoss||'15:00',spielstaette:m.platz||'Sportplatz Etteln',text:'Starke Leistung, Jungs!',torschuetzen:"Schmidt 12'\nMeier 41'"};
 }
 
 // ---------- Rechte ----------
@@ -744,7 +750,7 @@ function matchCard(){
   if(!m||!m.gegner)return `<section class="card"><div class="title">Noch kein Spieltag festgelegt</div><p class="hint">${canMatch()?'Lege Gegner, Datum und Anstoß einmal fest. Alle Bilder übernehmen das automatisch.':'Sobald der Spieltag angelegt ist, siehst du ihn hier.'}</p>${canMatch()?'<button class="btn" data-act="match">Spieltag festlegen</button>':''}</section>`;
   const v=buildVars({},null),n=(m.tore||[]).length;
   return `<section class="board"><div class="teams"><span class="tm">${h(v.heim)}</span><span class="sc num">${v.tore_heim}<i>:</i>${v.tore_gast}</span><span class="tm r">${h(v.gast)}</span></div>
-  <div class="meta"><span>${h(v.datum)}${m.anstoss?' · '+h(m.anstoss)+' Uhr':''} · ${n} ${n===1?'Tor':'Tore'}</span>${canMatch()?'<button class="btn glas klein" data-act="match">Spieltag</button>':''}</div>${clockHtml()}${tafelHtml()}</section>`;
+  <div class="meta"><span>${h(v.datum)}${m.anstoss?' · '+h(m.anstoss)+' Uhr':''}${m.platz?' · '+h(m.platz):''} · ${n} ${n===1?'Tor':'Tore'}</span>${canMatch()?'<button class="btn glas klein" data-act="match">Spieltag</button>':''}</div>${clockHtml()}${tafelHtml()}</section>`;
 }
 function vTafel(){return '<canvas id="tfc" class="tafelcanvas"></canvas>'}
 let tafelOv=null,tafelOvKey='';
@@ -788,6 +794,7 @@ function vMatch(){
      return `<label class="feld"><span>Gegner</span><select id="m_gsel">${!m.gegner&&!frei?'<option value="" selected>Bitte wählen</option>':''}${list.map(g=>`<option ${!frei&&g.name===m.gegner?'selected':''}>${h(g.name)}</option>`).join('')}<option value="__frei" ${frei?'selected':''}>Anderer Verein …</option></select></label>
      ${frei?`<label class="feld"><span>Name des Vereins</span><input id="m_gegner" data-md="gegner" value="${h(m.gegner)}" placeholder="z. B. TuS Musterdorf" autocomplete="off"></label>${isAdmin()?`<label class="sw"><span class="t">In die Gegner-Liste übernehmen</span><input type="checkbox" id="m_merk" ${MD.merk?'checked':''}></label>`:''}`:''}`})()}
    <div class="feld"><span>Spielort</span><div class="seg" role="group">${[['heim','Heimspiel'],['auswaerts','Auswärts']].map(([k,l])=>`<button data-act="mdOrt" data-v="${k}" aria-pressed="${m.ort===k}">${l}</button>`).join('')}</div></div>
+   <label class="feld"><span>Spielstätte</span><input id="m_platz" data-md="platz" value="${h(m.platz||'')}" placeholder="z. B. Sportplatz Etteln" autocomplete="off" list="platzListe"><datalist id="platzListe">${[...new Set([S.settings.platz,...(S.platzListe||[])].filter(Boolean))].map(x=>`<option value="${h(x)}">`).join('')}</datalist></label>
    <div class="zwei"><label class="feld"><span>Datum</span><input type="date" id="m_datum" data-md="datum" value="${h(m.datum)}"></label><label class="feld"><span>Anstoß</span><input type="time" id="m_anstoss" data-md="anstoss" value="${h(m.anstoss)}"></label></div>
   </section>
   <section class="card"><div class="title">Spieluhr</div>
@@ -902,7 +909,7 @@ function aushangSheet(){
 // ---------- Einstellungen (nur am PC) ----------
 const TF=()=>E.tab==='tafel';
 function draft(){if(TF()){if(!E.tdraft)E.tdraft=[clone(tafelTpl())];return E.tdraft}if(!E.draft)E.draft=clone(S.templates);return E.draft}
-const TAFEL_PH=[['heim','Heimteam'],['gast','Gastteam'],['tore_heim','Tore Heim'],['tore_gast','Tore Gast'],['spielzeit','Spielzeit 67:12'],['phase','z. B. 2. Halbzeit'],['torschuetzen_heim','Torschützen Heim'],['torschuetzen_gast','Torschützen Gast'],['torschuetzen','Alle Torschützen'],['gegner','Gegner'],['verein','Verein'],['datum','Datum'],['anstoss','Anstoß']];
+const TAFEL_PH=[['heim','Heimteam'],['gast','Gastteam'],['tore_heim','Tore Heim'],['tore_gast','Tore Gast'],['spielzeit','Spielzeit 67:12'],['phase','z. B. 2. Halbzeit'],['torschuetzen_heim','Torschützen Heim'],['torschuetzen_gast','Torschützen Gast'],['torschuetzen','Alle Torschützen'],['gegner','Gegner'],['verein','Verein'],['datum','Datum: Mo, 19.10.2026'],['datum_kurz','Datum: 19.10.26'],['datum_voll','Datum: 19.10.2026'],['wochentag','Wochentag'],['anstoss','Anstoß'],['spielstaette','Spielstätte']];
 function vEditor(){
   const tabs=[['vorlagen','Vorlagen'],['spieler','Spieler'],['gegner','Gegner'],['personen','Personen'],['aushang','Aushang'],['tafel','Live-Tafel'],['verein','Verein']];
   const body=(E.tab==='vorlagen'||E.tab==='tafel')?edTemplates():E.tab==='aushang'?edAushang():E.tab==='spieler'?edPlayers():E.tab==='gegner'?edGegner():E.tab==='personen'?edPeople():edClub();
@@ -1028,6 +1035,7 @@ function edClub(){
   const s=S.settings;
   return `<div class="cols"><section class="card"><div class="title">Verein</div>
    <label class="feld"><span>Vereinsname auf den Bildern</span><input id="c_v" value="${h(s.verein)}"></label>
+   <label class="feld"><span>Eigene Spielstätte · wird bei Heimspielen vorgeschlagen</span><input id="c_p" value="${h(s.platz||'')}" placeholder="z. B. Sportplatz Etteln"></label>
    <div class="zwei"><label class="feld"><span>Vereinsfarbe</span><input type="color" id="c_f" value="${h(s.farbe)}"></label>
    <label class="feld"><span>Akzentfarbe</span><input type="color" id="c_a" value="${h(s.akzent)}"></label></div>
    <button class="btn" data-act="clubSave">Speichern</button></section>
@@ -1414,13 +1422,14 @@ const actions={
     if(navigator.canShare&&navigator.canShare({files:[file]})){try{await navigator.share({files:[file]})}catch(e){}return}
     const a=document.createElement('a');a.href=F.url;a.download=file.name;document.body.appendChild(a);a.click();a.remove();
   },
-  match(){MD=clone(S.match||{gegner:'',ort:'heim',datum:todayISO(),anstoss:'15:00',wir:0,sie:0,tore:[]});MD.tore=MD.tore||[];E.confirm=null;go('match')},
-  mdOrt(b){MD.ort=b.dataset.v;render()},
+  match(){S.platzListe=ls.get('sb-plaetze')||[];MD=clone(S.match||{gegner:'',ort:'heim',datum:todayISO(),anstoss:'15:00',platz:S.settings.platz||'',wir:0,sie:0,tore:[]});MD.tore=MD.tore||[];E.confirm=null;go('match')},
+  mdOrt(b){MD.ort=b.dataset.v;if(MD.ort==='heim'&&!MD.platz&&S.settings.platz)MD.platz=S.settings.platz;render()},
   mdstep(b){const k=b.dataset.k;MD[k]=Math.max(0,(MD[k]||0)+ +b.dataset.d);render()},
   mdDelGoal(b){MD.tore=MD.tore.filter(g=>g.id!==b.dataset.id);render()},
   mdSave(){
     if(MD.frei){MD.gegner=(MD.gegner||'').trim();const g=gegnerList().find(x=>x.name.toLowerCase()===MD.gegner.toLowerCase());MD.gegnerWappen=g&&g.wappen||null;
       if(MD.merk&&isAdmin()&&MD.gegner&&!g)saveGegner([...gegnerList(),{name:MD.gegner,wappen:null}])}
+    MD.platz=(MD.platz||'').trim();if(MD.platz){const l=ls.get('sb-plaetze')||[];ls.set('sb-plaetze',[MD.platz,...l.filter(x=>x!==MD.platz)].slice(0,15))}
     const md=clone(MD),old=S.match;delete md.frei;delete md.merk;S.match={...md,clock:md.newClock?{phase:'none'}:((old&&old.clock)||{phase:'none'})};delete S.match.newClock;F=null;MD=null;E.confirm=null;go('home');toast('Spieltag gespeichert');
     call({a:'match',match:md,resetClock:!!md.newClock}).then(()=>rerenderSoft()).catch(e=>{toast('Nicht gespeichert: '+errText(e));refresh()})},
   askNewMatch(){E.confirm='newmatch';render()},
@@ -1487,7 +1496,7 @@ const actions={
   async aVerbinden(b){const link=$('#a_link').value.trim();if(!link){toast('Bitte den Einladungslink einfügen.');return}
     const m=API_RE.exec(S.con.url);b.disabled=true;b.textContent='Wird verbunden …';
     try{await call({a:'aushangSetup',link,sid:m[2],dom:m[1]||'',app:appUrl()});E.aNeu=false;render();toast('Aushang verbunden')}catch(e){b.disabled=false;b.textContent='Verbinden';toast(errText(e))}},
-  async clubSave(){try{await call({a:'cfg',set:{...S.settings,verein:$('#c_v').value.trim()||'SV Etteln',farbe:$('#c_f').value,akzent:$('#c_a').value}});render();toast('Gespeichert')}catch(e){toast(errText(e))}},
+  async clubSave(){try{await call({a:'cfg',set:{...S.settings,verein:$('#c_v').value.trim()||'SV Etteln',platz:$('#c_p').value.trim(),farbe:$('#c_f').value,akzent:$('#c_a').value}});render();toast('Gespeichert')}catch(e){toast(errText(e))}},
   sheetClose(){E.sheet=null;render()},
   sheetBg(b,e){if(e.target===b){E.sheet=null;E.aushang=false;render()}},
   aushangAsk(){E.aushang=true;E.aushangBis=null;render()},
