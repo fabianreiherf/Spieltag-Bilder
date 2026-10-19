@@ -329,6 +329,13 @@ body.tafelmodus::before { display: none; }
 code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85em; background: var(--field); border-radius: 6px; padding: 1px 5px; }
 .teamseg { width: 100%; }
 .teamseg button { min-height: 44px; font-size: .9rem; }
+@media (max-width: 899px) {
+  .tabs { display: flex; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { flex: 0 0 auto; padding: 0 14px; }
+  .prev .stage canvas { max-height: 58vh; }
+  .wrap.wide { padding-left: 12px; padding-right: 12px; }
+}
 </style>
 </head>
 <body>
@@ -744,9 +751,7 @@ function sampleVars(){
 // ---------- Rechte ----------
 const isAdmin=()=>!!(S.me&&S.me.admin);
 const canMatch=()=>!!(S.me&&(S.me.admin||S.me.rolle==='spieltag'));
-const WIDE=window.matchMedia('(min-width: 900px)');
-const canEditHere=()=>isAdmin()&&WIDE.matches;
-WIDE.addEventListener&&WIDE.addEventListener('change',()=>{if(S.view==='editor'&&!WIDE.matches)S.view='home';render()});
+const canEditHere=()=>isAdmin();
 function visibleTemplates(){const b=S.me&&S.me.buttons;if(isAdmin()||!b||!b.length)return S.templates;return S.templates.filter(t=>b.includes(t.id))}
 function askSummary(t){const a=t.ask||{},o=[];if(t.team)o.push(teamLabel(t.team));if(t.noPhoto)o.push('Grafik ohne Foto');if(a.spieler)o.push('Torschütze');if(a.minute&&a.minute!=='aus')o.push('Minute');if(a.spielstand)o.push('Spielstand');if(a.torschuetzen)o.push('Torschützen');if(a.freitext)o.push(a.freitext);return o.length?o.join(' · '):(t.noPhoto?'Fertige Grafik':'Direkt zum Foto')}
 
@@ -807,7 +812,7 @@ function vWelcome(){
   <section class="card"><div class="title">Einladung öffnen</div><p class="hint">Füge hier deinen persönlichen Link ein, den du per WhatsApp oder Mail bekommen hast. Nimm nicht den Link eines anderen, sonst bist du in der App unter dessen Namen unterwegs.</p>
   <label class="feld"><span>Link</span><input id="linkIn" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://…"></label>
   <div class="reihe"><button class="btn" data-act="link">Verbinden</button><button class="btn hell" data-act="paste">Einfügen</button></div></section>
-  <p class="note">Als Verwalter fügst du hier am PC den Link aus dem Google-Skript ein. Er endet mit <b>?k=…</b></p></div>`;
+  <p class="note">Als Verwalter fügst du hier den Link aus dem Google-Skript ein. Er endet mit <b>?k=…</b></p></div>`;
 }
 function vHome(){
   const name=S.me&&S.me.name?S.me.name:'';
@@ -947,7 +952,7 @@ function aushangSheet(){
   <button class="btn" data-act="aushangUp" id="aus_go">Hochladen</button></div></div>`;
 }
 
-// ---------- Einstellungen (nur am PC) ----------
+// ---------- Einstellungen (PC und Handy, nur Verwalter) ----------
 const TF=()=>E.tab==='tafel';
 function draft(){if(TF()){if(!E.tdraft)E.tdraft=[clone(tafelTpl())];return E.tdraft}if(!E.draft)E.draft=clone(S.templates);return E.draft}
 const TAFEL_PH=[['heim','Heimteam'],['gast','Gastteam'],['tore_heim','Tore Heim'],['tore_gast','Tore Gast'],['spielzeit','Spielzeit 67:12'],['phase','z. B. 2. Halbzeit'],['torschuetzen_heim','Torschützen Heim'],['torschuetzen_gast','Torschützen Gast'],['torschuetzen','Alle Torschützen'],['gegner','Gegner'],['verein','Verein'],['mannschaft','1. / 2. Mannschaft'],['datum','Datum: Mo, 19.10.2026'],['datum_kurz','Datum: 19.10.26'],['datum_voll','Datum: 19.10.2026'],['wochentag','Wochentag'],['anstoss','Anstoß'],['spielstaette','Spielstätte']];
@@ -1035,7 +1040,7 @@ function edPlayers(){
   <section class="card"><div class="head"><div class="title">Spielerliste</div><span class="stat">${pl.length}</span></div>${pl.length?`<div class="list">${pl.map(n=>`<div class="row"><span class="mid"><b>${h(n)}</b></span><button class="mini" data-act="plDel" data-v="${h(n)}" aria-label="${h(n)} entfernen">Entfernen</button></div>`).join('')}</div>`:'<p class="empty">Noch keine Spieler. Füge links den ersten hinzu.</p>'}</section></div>`;
 }
 function btnChecks(prefix,sel){return `<div class="stack">${S.templates.map(t=>`<label class="sw"><span class="t">${h(t.name)}</span><input type="checkbox" data-pb="${prefix}" value="${h(t.id)}" ${!sel||!sel.length||sel.includes(t.id)?'checked':''}></label>`).join('')}</div>`}
-function rolleSel(id,val){return `<select id="${id}">${[['nutzer','Bilder erstellen'],['spieltag','Bilder erstellen und Spieltag verwalten']].map(([k,l])=>`<option value="${k}" ${val===k?'selected':''}>${l}</option>`).join('')}</select>`}
+function rolleSel(id,val){return `<select id="${id}">${[['nutzer','Bilder erstellen'],['spieltag','Bilder erstellen und Spieltag verwalten'],['admin','Verwalter: alles inkl. Einstellungen']].map(([k,l])=>`<option value="${k}" ${val===k?'selected':''}>${l}</option>`).join('')}</select>`}
 function personForm(p,k){
   return `<label class="feld"><span>Name für „Hallo …“</span><input id="${k}_n" value="${h(p.name||'')}" placeholder="z. B. Jonas"></label>
   <label class="feld"><span>Rolle</span>${rolleSel(k+'_r',p.rolle||'nutzer')}</label>
@@ -1050,7 +1055,7 @@ function edPeople(){
     '<p class="hint">Jede Person bekommt ihren eigenen Link. Den schickst du ihr per WhatsApp oder Mail. Sie öffnet ihn auf dem iPhone in Safari und legt die App auf den Home-Bildschirm.</p><button class="btn" data-act="pNew">+ Person einladen</button>'}</section>
    <section class="card"><div class="title">Dein Name</div><label class="feld"><span>Für „Hallo …“ bei dir</span><input id="me_n" value="${h(S.settings.admin)}"></label><button class="btn hell" data-act="meSave">Speichern</button></section>
   </div><section class="card"><div class="head"><div class="title">Personen mit Zugang</div><span class="stat ok">${ppl.length}</span></div>
-   ${ppl.length?`<div class="list">${ppl.map(p=>{const k='pp_'+p.id.replace(/[^a-z0-9]/gi,''),open=E.openP===p.id;return `<div class="pbl"><div class="row"><span class="avatar">${h((p.name||'?').slice(0,1).toUpperCase())}</span><span class="mid"><b>${h(p.name)}${p.off?' · gesperrt':''}</b><small>${p.rolle==='spieltag'?'Bilder und Spieltag':'Bilder erstellen'}${p.seen?' · zuletzt '+h(p.seen.split('-').reverse().join('.')):' · noch nicht geöffnet'}</small></span><button class="mini" data-act="pLink" data-id="${h(p.id)}">Link</button><button class="mini" data-act="pOpen" data-id="${h(p.id)}">${open?'Zu':'Ändern'}</button></div>
+   ${ppl.length?`<div class="list">${ppl.map(p=>{const k='pp_'+p.id.replace(/[^a-z0-9]/gi,''),open=E.openP===p.id;return `<div class="pbl"><div class="row"><span class="avatar">${h((p.name||'?').slice(0,1).toUpperCase())}</span><span class="mid"><b>${h(p.name)}${p.off?' · gesperrt':''}</b><small>${p.rolle==='admin'?'Verwalter':p.rolle==='spieltag'?'Bilder und Spieltag':'Bilder erstellen'}${p.seen?' · zuletzt '+h(p.seen.split('-').reverse().join('.')):' · noch nicht geöffnet'}</small></span><button class="mini" data-act="pLink" data-id="${h(p.id)}">Link</button><button class="mini" data-act="pOpen" data-id="${h(p.id)}">${open?'Zu':'Ändern'}</button></div>
     ${open?`<div class="box">${personForm(p,k)}<label class="sw"><span class="t">Gesperrt</span><input type="checkbox" id="${k}_off" ${p.off?'checked':''}></label>
      <div class="reihe"><button class="btn" data-act="pSave" data-id="${h(p.id)}" data-k="${k}">Speichern</button><button class="btn hell" data-act="pRelink" data-id="${h(p.id)}" data-k="${k}">Neuer Link</button>${E.confirm==='p'+p.id?`<button class="btn rot" data-act="pDel" data-id="${h(p.id)}">Wirklich entfernen</button>`:`<button class="btn rot" data-act="askPDel" data-id="${h(p.id)}">Entfernen</button>`}</div>
      <p class="hint">„Neuer Link“ macht den alten Link ungültig.</p></div>`:''}</div>`}).join('')}</div>`:'<p class="empty">Noch niemand eingeladen.</p>'}
@@ -1113,6 +1118,7 @@ function render(){
   const map={tafel:vTafel,welcome:vWelcome,home:vHome,match:vMatch,input:vInput,source:vSource,cam:vCam,result:vResult,editor:vEditor};
   app.innerHTML=(map[S.view]||vHome)()+(E.sheet?linkSheet(E.sheet):'')+(E.aushang&&S.view==='result'?aushangSheet():'');
   const w=app.firstElementChild;
+  if(S.view==='editor'){const st=app.querySelector('.tab[aria-selected="true"]');if(st&&st.scrollIntoView)try{st.scrollIntoView({block:'nearest',inline:'nearest'})}catch(_){}}
   if(w&&S.view!==lastView){w.classList.add(lastView&&S.view==='home'?'rueck':'vor');lastView=S.view}
   if(S.view==='editor'&&(E.tab==='vorlagen'||E.tab==='tafel'))drawEditor();
   if(S.view==='tafel')drawTafel();
