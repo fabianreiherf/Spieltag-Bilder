@@ -316,6 +316,10 @@ div.note p { flex: 1 1 180px; text-align: left; }
 .stage video { display: block; max-width: 100%; max-height: 66vh; border-radius: 10px; background: #000; }
 .balken { height: 10px; border-radius: 999px; background: var(--field); overflow: hidden; }
 .balken i { display: block; height: 100%; width: 0; border-radius: 999px; background: var(--accent-2); transition: width .2s; }
+.wthumb { width: 44px; height: 44px; object-fit: contain; flex: none; border-radius: 8px; background: repeating-conic-gradient(var(--field) 0 25%, var(--surface) 0 50%) 0 0/10px 10px; }
+.wthumb.leer { display: inline-block; border: 1.5px dashed var(--line); background: none; }
+.mini.scharf { background: var(--danger); color: #fff; }
+.row .mini + .mini { margin-left: 4px; }
 </style>
 </head>
 <body>
@@ -325,6 +329,7 @@ div.note p { flex: 1 1 180px; text-align: left; }
 <input type="file" id="fileFont" accept=".ttf,.otf,.woff,.woff2,font/*" hidden>
 <input type="file" id="fileVidCam" accept="video/*" capture="environment" hidden>
 <input type="file" id="fileVidGal" accept="video/*" hidden>
+<input type="file" id="fileCrest" accept="image/png,image/webp,image/*" hidden>
 <input type="file" id="fileOv" accept="image/png,image/webp,image/*" hidden>
 <script>
 "use strict";
@@ -332,6 +337,7 @@ div.note p { flex: 1 1 180px; text-align: left; }
 const FMT={story:{w:1080,h:1920,label:'Story'},post:{w:1080,h:1350,label:'Post'}};
 const FONTS={'Modern':[700,800],'Montserrat':[600,800],'Kaushan Script':[400,400],'Bebas Neue':[400,400],'Anton':[400,400],'Barlow Condensed':[600,800],'Oswald':[500,700],'Barlow':[500,700]};
 const PLACEHOLDERS=[['spieler','Spieler'],['minute','Minute'],['tore_heim','Tore Heim'],['tore_gast','Tore Gast'],['heim','Heimteam'],['gast','Gastteam'],['gegner','Gegner'],['verein','Verein'],['datum','Datum'],['anstoss','Anstoß'],['torschuetzen','Torschützen-Liste'],['text','Freitext']];
+const DEFAULT_GEGNER=['Azzurri Calcio PB','BV Bad Lippspringe II','FC Dahl/Dörenhagen II','SC Borchen II','SC GW Holtheim','SG Haaren/Helmern','SG Sintfeld-Diemeltal','SG Wewelsburg/Ahden','SV 21 Büren','SV BW Benhausen','SV Marienloh II','SV Steinhausen','TuS Altenbeken','Türk-Gücü Paderborn','USC Altenautal 21 II'].map(name=>({name,wappen:null}));
 const DEF_SETTINGS={verein:'SV Etteln',farbe:'#20317f',akzent:'#f2b52c',admin:''};
 const WH='#ffffff', AC='#f2b52c';
 function mkEl(id,label,text,font,bold,color,s,p,extra){return Object.assign({id,label,text,font,bold,color,align:'center',upper:true,shadow:true,story:{x:.5,y:s[0],size:s[1]},post:{x:.5,y:p[0],size:p[1]}},extra||{})}
@@ -392,12 +398,15 @@ function parseLink(text){
 }
 function appUrl(){return location.origin+location.pathname.replace(/index\.html$/,'')}
 function inviteLink(tok){const m=API_RE.exec(S.con.url);return appUrl()+'?e='+m[2]+'~'+tok+(m[1]?'~'+m[1]:'')}
+let writeSeq=0;
 async function call(body){
   body.k=S.con.k;
+  const readOnly=body.a==='load'||body.a==='ovget';if(!readOnly)writeSeq++;const seq=writeSeq;
   const r=await fetch(S.con.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(body)});
   const j=await r.json();
   if(!j.ok){const e=new Error(j.error||'fehler');e.code=j.error;throw e}
-  if(j.data)j.changed=take(j.data);
+  // Eine Antwort, die älter ist als die letzte eigene Änderung, überschreibt nichts
+  if(j.data&&typeof j.data==='object'&&body.a!=='ovget'&&seq===writeSeq)j.changed=take(j.data);
   return j;
 }
 let lastSig='';
@@ -503,6 +512,24 @@ function drawPlaceholder(ctx,W,H,tpl,fmt){
   ctx.shadowBlur=0;ctx.fillStyle=st.akzent;ctx.fillRect(-150*sc,86*sc,300*sc,12*sc);
   ctx.restore();
 }
+// ---------- Wappen ----------
+const crestCache={};
+function crestKey(side,demo){
+  const m=S.match||{},heimSpiel=m.ort!=='auswaerts',own=side==='heim'?heimSpiel:!heimSpiel;
+  if(own)return S.settings.wappen?'id:'+S.settings.wappen:'own';
+  let id=m.gegnerWappen;
+  if(!id&&demo){const g=gegnerList().find(x=>x.wappen);id=g&&g.wappen}
+  return id?'id:'+id:null;
+}
+function crestImg(key){
+  if(!key)return null;const c=crestCache[key];
+  if(c&&c.img)return c.img;
+  if(!c){crestCache[key]={p:(key==='own'?loadImg('icon-wappen.png'):overlayImg(key.slice(3))).then(i=>{crestCache[key].img=i;if(!i)delete crestCache[key];onCrest();return i})}}
+  return null;
+}
+function crestReady(demo){return Promise.all(['heim','gast'].map(sd=>{const k=crestKey(sd,demo);if(!k)return null;crestImg(k);return crestCache[k]&&crestCache[k].p}))}
+let crestT=0;function onCrest(){clearTimeout(crestT);crestT=setTimeout(()=>{if(S.view==='editor'){if(E.tab==='vorlagen')drawEditor();else render()}else if(S.view==='result'&&F&&F.mode==='text')drawText()},30)}
+const gegnerList=()=>(Array.isArray(S.settings.gegner)?S.settings.gegner:DEFAULT_GEGNER).slice().sort((a,b)=>a.name.localeCompare(b.name,'de'));
 function resolveText(text,vars){let empty=false;const out=String(text||'').replace(/\{(\w+)\}/g,(m,k)=>{const v=vars[k];if(v==null||v===''){empty=true;return''}return String(v)});return empty?null:out}
 function renderCanvas(ctx,o){
   const {W,H,tpl,fmt,vars,photo,tf,ov,demo,clear,mirror,ovr}=o;
@@ -512,6 +539,16 @@ function renderCanvas(ctx,o){
   const boxes=[];
   (tpl.elements||[]).forEach((el,i)=>{
     const m=(ovr&&ovr[el.id])||null;
+    if(el.type==='img'){
+      const p=el[fmt]||el.story,img=crestImg(crestKey(el.src,demo)),hh=p.size*W/1080*(m?m.s:1);
+      const x=(p.x+(m?m.dx:0))*W,y=(p.y+(m?m.dy:0))*H,rot=((Number(el.rot)||0)+(m?m.r:0))*Math.PI/180;
+      let ww=hh;
+      if(img){ww=hh*(img.naturalWidth||img.width)/(img.naturalHeight||img.height);ctx.save();ctx.translate(x,y);if(rot)ctx.rotate(rot);if(el.shadow){ctx.shadowColor='rgba(0,0,0,.5)';ctx.shadowBlur=hh*.08;ctx.shadowOffsetY=hh*.03}ctx.drawImage(img,-ww/2,-hh/2,ww,hh);ctx.restore()}
+      else if(demo){ctx.save();ctx.translate(x,y);ctx.strokeStyle='rgba(255,255,255,.75)';ctx.lineWidth=4;ctx.setLineDash([12,10]);ctx.beginPath();ctx.arc(0,0,hh/2-4,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='rgba(255,255,255,.85)';ctx.font=`700 ${Math.max(18,hh*.14)}px Montserrat, Arial`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(el.src==='heim'?'WAPPEN HEIM':'WAPPEN GAST',0,0);ctx.restore()}
+      else return;
+      boxes.push({i,id:el.id,cx:x,cy:y,rot,lx:-ww/2-8,ly:-hh/2-8,w:ww+16,h:hh+16});
+      return;
+    }
     const t=(m&&typeof m.txt==='string')?m.txt:resolveText(el.text,vars);if(t==null||t.trim()==='')return;
     const p=el[fmt]||el.story;
     const size=p.size*W/1080*(m?m.s:1),lh=size*1.08,upper=el.upper||FONT_UPPER[el.font];
@@ -679,7 +716,9 @@ function vMatch(){
   const m=MD,v=S.settings.verein;
   return `<div class="wrap">${topbar('Spieltag','home')}
   <section class="card">
-   <label class="feld"><span>Gegner</span><input id="m_gegner" data-md="gegner" value="${h(m.gegner)}" placeholder="z. B. TuS Musterdorf" autocomplete="off"></label>
+   ${(()=>{const list=gegnerList(),known=list.some(g=>g.name===m.gegner),frei=MD.frei||(!!m.gegner&&!known);
+     return `<label class="feld"><span>Gegner</span><select id="m_gsel">${!m.gegner&&!frei?'<option value="" selected>Bitte wählen</option>':''}${list.map(g=>`<option ${!frei&&g.name===m.gegner?'selected':''}>${h(g.name)}</option>`).join('')}<option value="__frei" ${frei?'selected':''}>Anderer Verein …</option></select></label>
+     ${frei?`<label class="feld"><span>Name des Vereins</span><input id="m_gegner" data-md="gegner" value="${h(m.gegner)}" placeholder="z. B. TuS Musterdorf" autocomplete="off"></label>${isAdmin()?`<label class="sw"><span class="t">In die Gegner-Liste übernehmen</span><input type="checkbox" id="m_merk" ${MD.merk?'checked':''}></label>`:''}`:''}`})()}
    <div class="feld"><span>Spielort</span><div class="seg" role="group">${[['heim','Heimspiel'],['auswaerts','Auswärts']].map(([k,l])=>`<button data-act="mdOrt" data-v="${k}" aria-pressed="${m.ort===k}">${l}</button>`).join('')}</div></div>
    <div class="zwei"><label class="feld"><span>Datum</span><input type="date" id="m_datum" data-md="datum" value="${h(m.datum)}"></label><label class="feld"><span>Anstoß</span><input type="time" id="m_anstoss" data-md="anstoss" value="${h(m.anstoss)}"></label></div>
   </section>
@@ -781,8 +820,8 @@ function vResultVideo(share,canText){
 // ---------- Einstellungen (nur am PC) ----------
 function draft(){if(!E.draft)E.draft=clone(S.templates);return E.draft}
 function vEditor(){
-  const tabs=[['vorlagen','Vorlagen'],['spieler','Spieler'],['personen','Personen'],['verein','Verein']];
-  const body=E.tab==='vorlagen'?edTemplates():E.tab==='spieler'?edPlayers():E.tab==='personen'?edPeople():edClub();
+  const tabs=[['vorlagen','Vorlagen'],['spieler','Spieler'],['gegner','Gegner'],['personen','Personen'],['verein','Verein']];
+  const body=E.tab==='vorlagen'?edTemplates():E.tab==='spieler'?edPlayers():E.tab==='gegner'?edGegner():E.tab==='personen'?edPeople():edClub();
   return `<div class="wrap wide">${topbar('Einstellungen','leaveEditor')}
   <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button class="tab" role="tab" data-act="tab" data-v="${k}" aria-selected="${E.tab===k}">${l}</button>`).join('')}</div>${body}</div>`;
 }
@@ -812,9 +851,18 @@ function edTemplates(){
     <label class="sw"><span class="t">Frage „Torschützen mit anzeigen?“</span><input type="checkbox" id="a_ts" data-ed="a.torschuetzen" ${a.torschuetzen?'checked':''}></label>
     <label class="feld"><span>Freitext-Frage · leer = keine</span><input id="a_ft" data-ed="a.freitext" value="${h(a.freitext)}" placeholder="z. B. Kommentar"></label>
     <label class="sw"><span class="t">Tor im Spieltag speichern<small>Für die Torschützen-Liste und den Spielstand</small></span><input type="checkbox" id="t_rg" data-ed="t.recordGoal" ${t.recordGoal?'checked':''}></label></section>
-   <section class="card"><div class="title">Texte auf dem Bild</div>
-    <div class="chips2">${t.elements.map((x,i)=>`<button class="chipbtn" data-act="elSel" data-i="${i}" aria-pressed="${i===E.ei}">${h(x.label||'Text')}</button>`).join('')}<button class="chipbtn plus" data-act="elAdd">+ Text</button></div>
-    ${el?`<label class="feld"><span>Bezeichnung</span><input id="e_label" data-ed="e.label" value="${h(el.label)}"></label>
+   <section class="card"><div class="title">Texte und Wappen auf dem Bild</div>
+    <div class="chips2">${t.elements.map((x,i)=>`<button class="chipbtn" data-act="elSel" data-i="${i}" aria-pressed="${i===E.ei}">${h(x.label||'Text')}</button>`).join('')}<button class="chipbtn plus" data-act="elAdd">+ Text</button><button class="chipbtn plus" data-act="elAddImg">+ Wappen</button></div>
+    ${el&&el.type==='img'?`<label class="feld"><span>Bezeichnung</span><input id="e_label" data-ed="e.label" value="${h(el.label)}"></label>
+    <label class="feld"><span>Welches Wappen</span><select id="e_src" data-ed="e.src">${[['heim','Wappen Heimmannschaft'],['gast','Wappen Gastmannschaft']].map(([k,l])=>`<option value="${k}" ${el.src===k?'selected':''}>${l}</option>`).join('')}</select></label>
+    <p class="hint">Bei Heimspielen ist das Heim-Wappen deins, bei Auswärtsspielen das des Gegners. Hat der Gegner kein Wappen, bleibt die Stelle leer.</p>
+    <div class="drei"><label class="feld"><span>Höhe px</span><input type="number" id="e_size" data-ed="p.size" value="${Math.round(fp.size)}" min="20" max="1500"></label>
+     <label class="feld"><span>X %</span><input type="number" id="e_x" data-ed="p.x" value="${Math.round(fp.x*1000)/10}" step="0.5"></label>
+     <label class="feld"><span>Y %</span><input type="number" id="e_y" data-ed="p.y" value="${Math.round(fp.y*1000)/10}" step="0.5"></label></div>
+    <div class="zwei"><label class="feld"><span>Drehung °</span><input type="number" id="e_rot" data-ed="e.rot" value="${Number(el.rot)||0}" step="1" min="-180" max="180"></label><span></span></div>
+    <label class="sw"><span class="t">Schatten</span><input type="checkbox" id="e_shadow" data-ed="e.shadow" ${el.shadow?'checked':''}></label>
+    ${E.confirm==='el'?'<div class="reihe"><button class="btn rot" data-act="elDel">Wappen wirklich löschen</button><button class="btn hell" data-act="cancelConfirm">Abbrechen</button></div>':'<button class="btn rot klein" data-act="askElDel">Dieses Wappen löschen</button>'}`:
+    el?`<label class="feld"><span>Bezeichnung</span><input id="e_label" data-ed="e.label" value="${h(el.label)}"></label>
     <label class="feld"><span>Inhalt</span><textarea id="e_text" data-ed="e.text" rows="2">${h(el.text)}</textarea></label>
     <div class="ph">${PLACEHOLDERS.map(([k,l])=>`<button data-act="phIns" data-v="{${k}}" title="${h(l)}">{${k}}</button>`).join('')}</div>
     <p class="hint">Ist ein Platzhalter leer, zum Beispiel keine Minute, wird der ganze Text ausgeblendet.</p>
@@ -866,6 +914,16 @@ function edPeople(){
      <p class="hint">„Neuer Link“ macht den alten Link ungültig.</p></div>`:''}</div>`}).join('')}</div>`:'<p class="empty">Noch niemand eingeladen.</p>'}
   </section></div>`;
 }
+function crestThumb(id){const k='id:'+id,img=crestImg(k);return img?`<img class="wthumb" src="${img.src}" alt="">`:'<span class="wthumb leer" aria-hidden="true"></span>'}
+function edGegner(){
+  const list=gegnerList();
+  return `<div class="cols"><section class="card"><div class="title">Verein hinzufügen</div>
+   <div class="reihe"><input class="eingabe" id="g_name" placeholder="Name des Vereins" autocomplete="off" style="flex:3 1 200px"><button class="btn" data-act="gAdd">Hinzufügen</button></div>
+   <p class="hint">Wappen am besten als PNG mit durchsichtigem Hintergrund, quadratisch, mindestens 400 Pixel hoch. Beim Spieltag wählst du den Gegner aus dieser Liste, das Wappen kommt dann automatisch mit. Ein Verein, der hier fehlt, lässt sich beim Spieltag auch frei eintippen.</p></section>
+  <section class="card"><div class="head"><div class="title">Gegner-Liste</div><span class="stat">${list.length}</span></div>
+   <div class="list">${list.map(g=>`<div class="row">${g.wappen?crestThumb(g.wappen):'<span class="wthumb leer" aria-hidden="true"></span>'}<span class="mid"><b>${h(g.name)}</b><small>${g.wappen?'Wappen hinterlegt':'Ohne Wappen'}</small></span>
+    <button class="mini" data-act="gCrest" data-v="${h(g.name)}">${g.wappen?'Wappen ändern':'Wappen'}</button>${g.wappen?`<button class="mini" data-act="gCrestDel" data-v="${h(g.name)}">Wappen weg</button>`:''}${E.confirm==='g'+g.name?`<button class="mini scharf" data-act="gDel" data-v="${h(g.name)}">Wirklich</button>`:`<button class="mini" data-act="askGDel" data-v="${h(g.name)}">Entfernen</button>`}</div>`).join('')}</div></section></div>`;
+}
 function edClub(){
   const s=S.settings;
   return `<div class="cols"><section class="card"><div class="title">Verein</div>
@@ -873,6 +931,7 @@ function edClub(){
    <div class="zwei"><label class="feld"><span>Vereinsfarbe</span><input type="color" id="c_f" value="${h(s.farbe)}"></label>
    <label class="feld"><span>Akzentfarbe</span><input type="color" id="c_a" value="${h(s.akzent)}"></label></div>
    <button class="btn" data-act="clubSave">Speichern</button></section>
+   <section class="card"><div class="title">Eigenes Wappen</div><div class="ovrow">${S.settings.wappen?crestThumb(S.settings.wappen):'<img class="wthumb" src="icon-wappen.png" alt="">'}<span class="hint" style="flex:1">${S.settings.wappen?'Eigenes Bild hinterlegt':'Standard: SV-Etteln-Wappen'}</span><button class="btn hell klein" data-act="ownCrest">Ersetzen</button>${S.settings.wappen?'<button class="btn rot klein" data-act="ownCrestDel">Standard</button>':''}</div></section>
    <section class="card"><div class="title">Eigene Schriften</div><p class="hint">Lade eine Schriftdatei hoch (.ttf, .otf oder .woff2). Sie steht dann bei den Texten auf dem Bild zur Auswahl.</p>
     ${(s.fonts||[]).length?`<div class="list">${s.fonts.map(f=>`<div class="row"><span class="mid"><b style="font-family:'cf-${h(f.id)}'">${h(f.name)}</b></span><button class="mini" data-act="fontDel" data-v="${h(f.id)}">Entfernen</button></div>`).join('')}</div>`:''}
     <div class="reihe"><input class="eingabe" id="f_name" placeholder="Name der Schrift" style="flex:2 1 160px"><button class="btn hell" data-act="fontUp">Datei wählen</button></div></section>
@@ -918,7 +977,7 @@ async function drawEditor(){
   const {w,h:H}=FMT[E.fmt];if(c.width!==w)c.width=w;if(c.height!==H)c.height=H;
   const key=(t.overlay[E.fmt]||'')+E.fmt;
   if(key!==edOvKey){edOvKey=key;edOv=null;prepOverlay(t,E.fmt).then(i=>{if(edOvKey===key){edOv=i;drawEditor()}})}
-  await fontsReady;
+  await fontsReady;crestReady(true);
   const ctx=c.getContext('2d');
   edBoxes=renderCanvas(ctx,{W:w,H,tpl:t,fmt:E.fmt,vars:sampleVars(),demo:true,ov:edOv});
   if(E.guides)drawGuides(ctx,w,H,E.guides,E.fmt);
@@ -1030,7 +1089,7 @@ function shoot(){
 // ---------- Ergebnis ----------
 async function compose(){
   const {w,h:H}=FMT[F.fmt],c=document.createElement('canvas');c.width=w;c.height=H;
-  await fontsReady;const ov=await prepOverlay(F.tpl,F.fmt);F.ov=ov;
+  await fontsReady;await crestReady();const ov=await prepOverlay(F.tpl,F.fmt);F.ov=ov;
   const cx=c.getContext('2d');cx.imageSmoothingEnabled=true;cx.imageSmoothingQuality='high';
   clampTf(F.photo,w,H,F.tf);
   F.boxes=renderCanvas(cx,{W:w,H,tpl:F.tpl,fmt:F.fmt,vars:buildVars(F.input,F.goalId),photo:F.photo,tf:F.tf,ov,ovr:F.ovr});
@@ -1134,6 +1193,20 @@ $('#fileFont').addEventListener('change',async e=>{
     await call({a:'cfg',set});await loadCustomFonts();render();toast('Schrift hinzugefügt');
   }catch(err){toast('Hochladen ging nicht: '+errText(err))}
 });
+$('#fileCrest').addEventListener('change',async e=>{
+  const f=e.target.files[0];e.target.value='';if(!f)return;const who=E.crestFor;
+  try{
+    toast('Wappen wird hochgeladen …');
+    const img=await loadImg(URL.createObjectURL(f));if(!img)throw new Error('bild');
+    const sc=Math.min(1,600/Math.max(img.naturalWidth,img.naturalHeight)),c=document.createElement('canvas');c.width=Math.round(img.naturalWidth*sc);c.height=Math.round(img.naturalHeight*sc);
+    c.getContext('2d').drawImage(img,0,0,c.width,c.height);const data=c.toDataURL('image/png');
+    const r=await call({a:'ovup',data,name:'wappen-'+(who==='__own'?'eigen':who)+'.png'});
+    idb.put(r.id,data);imgCache[r.id]=loadImg(data);
+    if(who==='__own'){const set={...S.settings,wappen:r.id};S.settings=set;await call({a:'cfg',set})}
+    else saveGegner(gegnerList().map(g=>g.name===who?{...g,wappen:r.id}:g));
+    render();toast('Wappen gespeichert');
+  }catch(err){toast('Hochladen ging nicht: '+errText(err))}
+});
 $('#fileOv').addEventListener('change',async e=>{
   const f=e.target.files[0];e.target.value='';if(!f)return;const t=draft()[E.ti],fmt=E.fmt;
   try{
@@ -1154,6 +1227,7 @@ document.addEventListener('input',e=>{
   if(el.dataset.in&&F){const k=el.dataset.in;if(k==='free'){F.input.spieler=el.value.trim();F.input.free=!!el.value.trim();document.querySelectorAll('[data-act=pickPlayer]').forEach(b=>b.setAttribute('aria-pressed','false'))}else F.input[k]=el.value;return}
   if(el.dataset.md&&MD){MD[el.dataset.md]=el.value;return}
   if(el.id==='m_auto'&&MD){MD.autoMin=el.checked;return}
+  if(el.id==='m_merk'&&MD){MD.merk=el.checked;return}
   if((el.id==='vt_s'||el.id==='vt_e')&&F&&F.isVideo){
     let a=+$('#vt_s').value,b=+$('#vt_e').value;
     if(el.id==='vt_s'){if(b-a>60)b=a+60;if(b<a+0.5)b=Math.min(F.dur,a+0.5)}else{if(b-a>60)a=b-60;if(a>b-0.5)a=Math.max(0,b-0.5)}
@@ -1165,7 +1239,9 @@ document.addEventListener('input',e=>{
   if((el.id==='tx_s'||el.id==='tx_r')&&F){const o=tCur();if(el.id==='tx_s')o.s=parseFloat(el.value);else o.r=parseFloat(el.value);drawText();return}
   if(el.dataset.ed)edApply(el,false);
 });
-document.addEventListener('change',e=>{const el=e.target;if(el.dataset.ed)edApply(el,true)});
+document.addEventListener('change',e=>{const el=e.target;
+  if(el.id==='m_gsel'&&MD){if(el.value==='__frei'){MD.frei=true;MD.gegner='';MD.gegnerWappen=null}else{MD.frei=false;MD.gegner=el.value;const g=gegnerList().find(x=>x.name===el.value);MD.gegnerWappen=g&&g.wappen||null}render();if(MD.frei){const i=$('#m_gegner');if(i)i.focus()}return}
+  if(el.dataset.ed)edApply(el,true)});
 function edApply(el,isChange){
   const t=draft()[E.ti];if(!t)return;const [scope,key]=el.dataset.ed.split('.');const e=t.elements[E.ei];
   const val=el.type==='checkbox'?el.checked:el.value;
@@ -1175,6 +1251,7 @@ function edApply(el,isChange){
   if(isChange&&(el.type==='checkbox'||el.tagName==='SELECT'||key==='name'||key==='label'))render();else drawEditor();
 }
 function checkedButtons(k){const all=[...document.querySelectorAll(`[data-pb="${k}"]`)];const on=all.filter(x=>x.checked).map(x=>x.value);return on.length===all.length?[]:on}
+function saveGegner(list){const set={...S.settings,gegner:list};S.settings=set;render();call({a:'cfg',set}).catch(e=>{toast('Nicht gespeichert: '+errText(e));refresh()})}
 function savePlayers(list){const l=[...new Set(list)];S.players=l;render();call({a:'cfg',players:l}).catch(e=>{toast('Nicht gespeichert: '+errText(e));refresh()})}
 function connect(text){
   const c=parseLink(text);
@@ -1223,7 +1300,7 @@ const actions={
   async resFmt(b){F.fmt=b.dataset.v;F.tf={zoom:1,ox:0,oy:0};F.ovr={};F.url=null;if(F.isVideo)F.ov=await prepOverlay(F.tpl,F.fmt);render()},
   async adjust(){if(F.isVideo)stopVideo();F.adjust=true;F.ov=await prepOverlay(F.tpl,F.fmt);await fontsReady;render()},
   adjustDone(){F.adjust=false;F.url=null;render();if(F.isVideo)F.photo.play().catch(()=>{})},
-  async textMode(){if(F.isVideo)stopVideo();F.ov=await prepOverlay(F.tpl,F.fmt);await fontsReady;F.mode='text';render()},
+  async textMode(){if(F.isVideo)stopVideo();await crestReady();F.ov=await prepOverlay(F.tpl,F.fmt);await fontsReady;F.mode='text';render()},
   textDone(){F.mode='img';F.picking=false;F.guides=null;F.url=null;render();if(F.isVideo)F.photo.play().catch(()=>{})},
   textReset(){delete F.ovr[F.tsel];F.picking=false;render()},
   tSel(b){F.tsel=b.dataset.v;F.picking=false;render()},
@@ -1239,7 +1316,10 @@ const actions={
   mdOrt(b){MD.ort=b.dataset.v;render()},
   mdstep(b){const k=b.dataset.k;MD[k]=Math.max(0,(MD[k]||0)+ +b.dataset.d);render()},
   mdDelGoal(b){MD.tore=MD.tore.filter(g=>g.id!==b.dataset.id);render()},
-  mdSave(){const md=clone(MD),old=S.match;S.match={...md,clock:md.newClock?{phase:'none'}:((old&&old.clock)||{phase:'none'})};delete S.match.newClock;F=null;MD=null;E.confirm=null;go('home');toast('Spieltag gespeichert');
+  mdSave(){
+    if(MD.frei){MD.gegner=(MD.gegner||'').trim();const g=gegnerList().find(x=>x.name.toLowerCase()===MD.gegner.toLowerCase());MD.gegnerWappen=g&&g.wappen||null;
+      if(MD.merk&&isAdmin()&&MD.gegner&&!g)saveGegner([...gegnerList(),{name:MD.gegner,wappen:null}])}
+    const md=clone(MD),old=S.match;delete md.frei;delete md.merk;S.match={...md,clock:md.newClock?{phase:'none'}:((old&&old.clock)||{phase:'none'})};delete S.match.newClock;F=null;MD=null;E.confirm=null;go('home');toast('Spieltag gespeichert');
     call({a:'match',match:md,resetClock:!!md.newClock}).then(()=>rerenderSoft()).catch(e=>{toast('Nicht gespeichert: '+errText(e));refresh()})},
   askNewMatch(){E.confirm='newmatch';render()},
   mdNew(){MD={gegner:'',ort:'heim',datum:todayISO(),anstoss:'15:00',wir:0,sie:0,tore:[],autoMin:MD.autoMin!==false,newClock:true};E.confirm=null;render()},
@@ -1261,6 +1341,7 @@ const actions={
   askTplDel(){E.confirm='tpl';render()},
   tplDel(){draft().splice(E.ti,1);E.ti=0;E.ei=0;E.confirm=null;edOvKey='';markDirty(true)},
   elSel(b){E.ei=+b.dataset.i;E.confirm=null;render()},
+  elAddImg(){const t=draft()[E.ti],n=t.elements.filter(e=>e.type==='img').length,src=n%2?'gast':'heim';t.elements.push({id:'e'+uidGen(),type:'img',label:src==='heim'?'Wappen Heim':'Wappen Gast',src,shadow:true,rot:0,story:{x:src==='heim'?.25:.75,y:.45,size:260},post:{x:src==='heim'?.25:.75,y:.42,size:220}});E.ei=t.elements.length-1;markDirty(true)},
   elAdd(){const t=draft()[E.ti];t.elements.push(mkEl('e'+uidGen(),'Neuer Text','Text','Montserrat',true,WH,[.5,70],[.5,60]));E.ei=t.elements.length-1;markDirty(true)},
   askElDel(){E.confirm='el';render()},
   elDel(){const t=draft()[E.ti];t.elements.splice(E.ei,1);E.ei=0;E.confirm=null;markDirty(true)},
@@ -1272,6 +1353,13 @@ const actions={
     try{await call({a:'cfg',tpl:d});toast('Gespeichert. Alle sehen es jetzt am Handy.')}catch(e){E.draft=d;E.dirty=true;render();toast('Nicht gespeichert: '+errText(e))}},
   plAdd(){const v=$('#p_one').value.trim();if(v)savePlayers([...S.players,v])},
   plAddMany(){const v=$('#p_many').value.split('\n').map(x=>x.trim()).filter(Boolean);if(v.length)savePlayers([...S.players,...v])},
+  gAdd(){const n=$('#g_name').value.trim();if(!n)return;const l=gegnerList();if(l.some(g=>g.name.toLowerCase()===n.toLowerCase())){toast('Diesen Verein gibt es schon.');return}saveGegner([...l,{name:n,wappen:null}])},
+  gCrest(b){E.crestFor=b.dataset.v;$('#fileCrest').click()},
+  gCrestDel(b){saveGegner(gegnerList().map(g=>g.name===b.dataset.v?{...g,wappen:null}:g))},
+  askGDel(b){E.confirm='g'+b.dataset.v;render()},
+  gDel(b){E.confirm=null;saveGegner(gegnerList().filter(g=>g.name!==b.dataset.v))},
+  ownCrest(){E.crestFor='__own';$('#fileCrest').click()},
+  ownCrestDel(){const set={...S.settings,wappen:null};S.settings=set;render();call({a:'cfg',set}).catch(e=>toast(errText(e)))},
   plDel(b){savePlayers(S.players.filter(n=>n!==b.dataset.v))},
   pNew(){E.newP=true;render()},
   pCancel(){E.newP=null;render()},
