@@ -327,6 +327,8 @@ body.tafelmodus { padding: 0; background: #000; overflow: hidden; }
 body.tafelmodus::before { display: none; }
 .tafelcanvas { position: fixed; inset: 0; margin: auto; width: 100vw; height: 100vh; object-fit: contain; display: block; background: #000; }
 code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85em; background: var(--field); border-radius: 6px; padding: 1px 5px; }
+.teamseg { width: 100%; }
+.teamseg button { min-height: 44px; font-size: .9rem; }
 </style>
 </head>
 <body>
@@ -343,7 +345,7 @@ code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85em; 
 // ---------- Grundwerte ----------
 const FMT={story:{w:1080,h:1920,label:'Story'},post:{w:1080,h:1350,label:'Post'}};
 const FONTS={'Modern':[700,800],'Montserrat':[600,800],'Kaushan Script':[400,400],'Bebas Neue':[400,400],'Anton':[400,400],'Barlow Condensed':[600,800],'Oswald':[500,700],'Barlow':[500,700]};
-const PLACEHOLDERS=[['spieler','Spieler'],['minute','Minute'],['tore_heim','Tore Heim'],['tore_gast','Tore Gast'],['heim','Heimteam'],['gast','Gastteam'],['gegner','Gegner'],['verein','Verein'],['datum','Datum: Mo, 19.10.2026'],['datum_kurz','Datum: 19.10.26'],['datum_voll','Datum: 19.10.2026'],['wochentag','Wochentag: Montag'],['anstoss','Anstoß'],['spielstaette','Spielstätte'],['torschuetzen','Torschützen-Liste'],['text','Freitext']];
+const PLACEHOLDERS=[['spieler','Spieler'],['minute','Minute'],['tore_heim','Tore Heim'],['tore_gast','Tore Gast'],['heim','Heimteam'],['gast','Gastteam'],['gegner','Gegner'],['verein','Verein'],['mannschaft','1. / 2. Mannschaft'],['datum','Datum: Mo, 19.10.2026'],['datum_kurz','Datum: 19.10.26'],['datum_voll','Datum: 19.10.2026'],['wochentag','Wochentag: Montag'],['anstoss','Anstoß'],['spielstaette','Spielstätte'],['torschuetzen','Torschützen-Liste'],['text','Freitext']];
 const DEFAULT_GEGNER=['Azzurri Calcio PB','BV Bad Lippspringe II','FC Dahl/Dörenhagen II','SC Borchen II','SC GW Holtheim','SG Haaren/Helmern','SG Sintfeld-Diemeltal','SG Wewelsburg/Ahden','SV 21 Büren','SV BW Benhausen','SV Marienloh II','SV Steinhausen','TuS Altenbeken','Türk-Gücü Paderborn','USC Altenautal 21 II'].map(name=>({name,wappen:null}));
 const DEF_SETTINGS={verein:'SV Etteln',farbe:'#20317f',akzent:'#f2b52c',admin:''};
 const WH='#ffffff', AC='#f2b52c';
@@ -378,8 +380,22 @@ function defaultTemplates(){return [
 
 // ---------- Zustand ----------
 const S={off:0,view:'loading',fmt:'story',con:null,me:null,err:'',busy:false,
-  settings:{...DEF_SETTINGS},templates:defaultTemplates(),players:[],match:null,pers:[]};
+  settings:{...DEF_SETTINGS},templates:defaultTemplates(),pers:[],matches:{m1:null,m2:null},playersBy:{m1:[],m2:[]},team:'m1'};
 let F=null, MD=null;
+const TEAMS=[['m1','1. Mannschaft'],['m2','2. Mannschaft']];
+const teamLabel=t=>t==='m2'?'2. Mannschaft':'1. Mannschaft';
+// Für welche Mannschaft gerade gearbeitet wird: Tafel, Bild-Ablauf, Vorlage im Editor oder Auswahl auf der Startseite
+function activeTeam(){
+  if(S.view==='tafel')return (S.tafel&&S.tafel.team)||'m1';
+  if(F&&F.team&&['input','source','cam','result'].includes(S.view))return F.team;
+  if(MD&&MD.team&&S.view==='match')return MD.team;
+  if(S.view==='editor'&&typeof E!=='undefined'&&E.tab==='vorlagen'){const t=(E.draft||S.templates)[E.ti];if(t&&t.team)return t.team}
+  if(S.view==='editor'&&typeof E!=='undefined'&&E.tab==='spieler'&&E.pteam)return E.pteam;
+  return S.team;
+}
+Object.defineProperty(S,'match',{get(){return S.matches[activeTeam()]||null},set(v){S.matches[activeTeam()]=v}});
+Object.defineProperty(S,'players',{get(){return S.playersBy[activeTeam()]||[]},set(v){S.playersBy[activeTeam()]=v}});
+const ownName=()=>activeTeam()==='m2'?(S.settings.name2||((S.settings.verein||'')+' II')):(S.settings.verein||'');
 const E={tab:'vorlagen',ti:0,ei:0,fmt:'story',draft:null,dirty:false,confirm:null,newP:null,openP:null};
 const $=s=>document.querySelector(s);
 const h=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -427,10 +443,10 @@ async function call(body){
 let lastSig='';
 function take(d){
   if(d.now)S.off=d.now-Date.now();
-  const sig=JSON.stringify([d.me,d.set,d.tpl,d.players,d.match,d.pers,d.tafel,d.aushang]);
+  const sig=JSON.stringify([d.me,d.set,d.tpl,d.players,d.matches,d.pers,d.tafel,d.aushang]);
   if(sig===lastSig&&!E.dirty)return false;lastSig=sig;
-  S.me=d.me;S.tafel=d.tafel||null;S.aushang=d.aushang||null;S.settings={...DEF_SETTINGS,...(d.set||{})};S.players=d.players||[];S.match=d.match||null;S.pers=d.pers||[];
-  if(!E.dirty){S.templates=Array.isArray(d.tpl)&&d.tpl.length?d.tpl:defaultTemplates();E.draft=null}
+  S.me=d.me;S.tafel=d.tafel||null;S.aushang=d.aushang||null;S.settings={...DEF_SETTINGS,...(d.set||{})};S.playersBy=Array.isArray(d.players)?{m1:d.players,m2:[]}:{m1:[],m2:[],...(d.players||{})};S.matches={m1:null,m2:null,...(d.matches||{})};if(d.match&&!d.matches)S.matches.m1=d.match;S.pers=d.pers||[];
+  if(!E.dirty){S.templates=Array.isArray(d.tpl)&&d.tpl.length?d.tpl:defaultTemplates();if(!(S.settings&&S.settings.grMig)&&!S.templates.some(t=>t.noPhoto))S.templates=[...S.templates,grafikTpl('m1'),grafikTpl('m2')];E.draft=null}
   ls.set('sb-data',d);
   if((S.settings.fonts||[]).length)loadCustomFonts().then(()=>{if(S.view==='editor')drawEditor()});
   return true;
@@ -560,7 +576,7 @@ function resolveText(text,vars){let empty=false;const out=String(text||'').repla
 function renderCanvas(ctx,o){
   const {W,H,tpl,fmt,vars,photo,tf,ov,demo,clear,mirror,ovr}=o;
   ctx.clearRect(0,0,W,H);
-  if(tpl.kind==='tafel'){if(ov)ctx.drawImage(ov,0,0,W,H);else drawTafelBg(ctx,W,H)}
+  if(tpl.kind==='tafel'||tpl.noPhoto){if(ov)ctx.drawImage(ov,0,0,W,H);else drawTafelBg(ctx,W,H)}
   else{
   if(photo)drawCover(ctx,photo,W,H,tf,mirror);else if(demo)drawPitch(ctx,W,H);else if(!clear){ctx.fillStyle='#1d2a5a';ctx.fillRect(0,0,W,H)}
   if(ov)ctx.drawImage(ov,0,0,W,H);else drawPlaceholder(ctx,W,H,tpl,fmt);}
@@ -649,9 +665,10 @@ function clockInfo(){
 }
 function tafelHtml(){
   if(!(S.aushang&&S.aushang.verbunden)||!canMatch())return '';
-  const on=tafelActive(),back=tafelBackAt();
-  const txt=on?(back?'Live-Tafel läuft · Diashow kommt um '+new Date(back).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})+' zurück':'Live-Tafel läuft auf dem Aushang'):'Aushang zeigt die Diashow';
-  return `<div class="tafelzeile"><span class="tlab">${on?'<i class="live"></i>':''}${h(txt)}</span><button class="btn ${on?'weiss':'gold'} klein" data-act="tafelToggle">${on?'Diashow zeigen':'Live-Tafel zeigen'}</button></div>`;
+  const other=S.tafel&&S.tafel.on&&(S.tafel.team||'m1')!==S.team;
+  const on=!other&&tafelActive(),back=on&&tafelBackAt();
+  const txt=other?'Live-Tafel zeigt gerade die '+teamLabel(S.tafel.team||'m1'):on?(back?'Live-Tafel läuft · Diashow kommt um '+new Date(back).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})+' zurück':'Live-Tafel läuft auf dem Aushang'):'Aushang zeigt die Diashow';
+  return `<div class="tafelzeile"><span class="tlab">${on?'<i class="live"></i>':''}${h(txt)}</span><button class="btn ${on?'weiss':'gold'} klein" data-act="tafelToggle">${on?'Diashow zeigen':other?'Hierhin wechseln':'Live-Tafel zeigen'}</button></div>`;
 }
 function clockHtml(){
   const ci=clockInfo(),m=S.match||{},can=canMatch();
@@ -662,14 +679,14 @@ function clockHtml(){
 setInterval(()=>{const el=$('#clk');if(!el)return;const ci=clockInfo();if(ci)el.textContent=ci.text},1000);
 
 function buildVars(inp,goalId){
-  const m=S.match||{},verein=S.settings.verein||'',g=m.gegner||'',heimSpiel=m.ort!=='auswaerts';
+  const m=S.match||{},verein=ownName(),g=m.gegner||'',heimSpiel=m.ort!=='auswaerts';
   const wir=inp.wir!=null?inp.wir:(m.wir||0),sie=inp.sie!=null?inp.sie:(m.sie||0);
   return {verein,gegner:g,heim:heimSpiel?verein:g,gast:heimSpiel?g:verein,tore_heim:heimSpiel?wir:sie,tore_gast:heimSpiel?sie:wir,
-    spieler:inp.spieler||'',minute:inp.minute||'',...dateVars(m.datum),anstoss:m.anstoss||'',spielstaette:m.platz||'',text:inp.text||'',
+    mannschaft:teamLabel(activeTeam()),spieler:inp.spieler||'',minute:inp.minute||'',...dateVars(m.datum),anstoss:m.anstoss||'',spielstaette:m.platz||'',text:inp.text||'',
     torschuetzen:inp.showScorers?goalsGrouped(goalId).join('\n'):''};
 }
 function tafelVars(sample){
-  const m=S.match||{},verein=S.settings.verein||'',g=m.gegner||(sample?'TuS Beispielstadt':''),heimSpiel=m.ort!=='auswaerts';
+  const m=S.match||{},verein=ownName(),g=m.gegner||(sample?'TuS Beispielstadt':''),heimSpiel=m.ort!=='auswaerts';
   const wir=sample&&!S.match?2:(m.wir||0),sie=sample&&!S.match?1:(m.sie||0),ci=clockInfo();
   const sc=sample&&!(m.tore||[]).length?["Schmidt 12'","Meier 41'"]:goalsGrouped(null);
   const zeit=ci?ci.text:(sample?'67:12':''),phase=ci?ci.label:(sample?'2. Halbzeit':'');
@@ -688,17 +705,29 @@ function defaultTafel(){return {id:'tafel',kind:'tafel',name:'Live-Tafel',title:
   mkEl('t6','Torschützen Heim','{torschuetzen_heim}','Montserrat',true,WH,[.8,46],[.8,40],{upper:false,maxw:44}),
   mkEl('t7','Torschützen Gast','{torschuetzen_gast}','Montserrat',true,WH,[.8,46],[.8,40],{upper:false,maxw:44})
 ].map(e=>{if(e.id==='t1'||e.id==='t6'){e.story.x=.27;e.post.x=.27}if(e.id==='t2'||e.id==='t7'){e.story.x=.73;e.post.x=.73}return e})}}
+function grafikTpl(team){const n=team==='m2'?'2':'1';return {id:'gr'+n,name:'Spieltag '+n+'. Mannschaft',title:'',team,noPhoto:true,ask:ask({}),recordGoal:false,overlay:{story:null,post:null},elements:[
+  mkEl('g0','Überschrift','{mannschaft}','Montserrat',true,AC,[.1,52],[.1,46]),
+  mkEl('g1','Titel','Spieltag','Bebas Neue',false,WH,[.18,170],[.2,150]),
+  {id:'gw1',type:'img',label:'Wappen Heim',src:'heim',shadow:true,rot:0,story:{x:.27,y:.38,size:300},post:{x:.27,y:.42,size:250}},
+  {id:'gw2',type:'img',label:'Wappen Gast',src:'gast',shadow:true,rot:0,story:{x:.73,y:.38,size:300},post:{x:.73,y:.42,size:250}},
+  mkEl('g2','Heimteam','{heim}','Montserrat',true,WH,[.5,58],[.58,50],{maxw:44}),
+  mkEl('g3','gegen','gegen','Montserrat',true,AC,[.5,40],[.58,34]),
+  mkEl('g4','Gastteam','{gast}','Montserrat',true,WH,[.5,58],[.58,50],{maxw:44}),
+  mkEl('g5','Datum','{wochentag}, {datum_kurz}','Montserrat',true,WH,[.66,60],[.74,52]),
+  mkEl('g6','Anstoß','{anstoss} Uhr','Bebas Neue',false,AC,[.74,120],[.82,100]),
+  mkEl('g7','Spielstätte','{spielstaette}','Montserrat',true,WH,[.82,44],[.9,38],{upper:false,maxw:90})
+].map(e=>{if(e.id==='g2'){e.story.x=.27;e.story.y=.52;e.post.x=.27;e.post.y=.6}if(e.id==='g4'){e.story.x=.73;e.story.y=.52;e.post.x=.73;e.post.y=.6}if(e.id==='g3'){e.story.y=.38;e.post.y=.42}return e})}}
 function tafelTpl(){return (S.tafel&&S.tafel.tpl)||defaultTafel()}
 function tafelActive(){
   const t=S.tafel;if(!t||!t.on)return false;
-  const c=S.match&&S.match.clock;
+  const tm=S.matches[t.team||'m1'],c=tm&&tm.clock;
   if(c&&c.phase==='ende'&&c.endAt&&c.endAt>(t.since||0)&&Date.now()+S.off>c.endAt+(t.nach??30)*60000)return false;
   return true;
 }
-function tafelBackAt(){const t=S.tafel,c=S.match&&S.match.clock;if(!t||!t.on||!c||c.phase!=='ende'||!c.endAt||c.endAt<=(t.since||0))return null;return c.endAt+(t.nach??30)*60000}
+function tafelBackAt(){const t=S.tafel,tm=t&&S.matches[t.team||'m1'],c=tm&&tm.clock;if(!t||!t.on||!c||c.phase!=='ende'||!c.endAt||c.endAt<=(t.since||0))return null;return c.endAt+(t.nach??30)*60000}
 function sampleVars(){
-  const m=S.match||{},verein=S.settings.verein,g=m.gegner||'TuS Beispielstadt',heimSpiel=m.ort!=='auswaerts';
-  return {verein,gegner:g,heim:heimSpiel?verein:g,gast:heimSpiel?g:verein,tore_heim:2,tore_gast:1,spieler:'Max Mustermann',minute:'67',
+  const m=S.match||{},verein=ownName(),g=m.gegner||'TuS Beispielstadt',heimSpiel=m.ort!=='auswaerts';
+  return {verein,mannschaft:teamLabel(activeTeam()),gegner:g,heim:heimSpiel?verein:g,gast:heimSpiel?g:verein,tore_heim:2,tore_gast:1,spieler:'Max Mustermann',minute:'67',
     ...dateVars(m.datum||todayISO()),anstoss:m.anstoss||'15:00',spielstaette:m.platz||'Sportplatz Etteln',text:'Starke Leistung, Jungs!',torschuetzen:"Schmidt 12'\nMeier 41'"};
 }
 
@@ -709,7 +738,7 @@ const WIDE=window.matchMedia('(min-width: 900px)');
 const canEditHere=()=>isAdmin()&&WIDE.matches;
 WIDE.addEventListener&&WIDE.addEventListener('change',()=>{if(S.view==='editor'&&!WIDE.matches)S.view='home';render()});
 function visibleTemplates(){const b=S.me&&S.me.buttons;if(isAdmin()||!b||!b.length)return S.templates;return S.templates.filter(t=>b.includes(t.id))}
-function askSummary(t){const a=t.ask||{},o=[];if(a.spieler)o.push('Torschütze');if(a.minute&&a.minute!=='aus')o.push('Minute');if(a.spielstand)o.push('Spielstand');if(a.torschuetzen)o.push('Torschützen');if(a.freitext)o.push(a.freitext);return o.length?o.join(' · '):'Direkt zum Foto'}
+function askSummary(t){const a=t.ask||{},o=[];if(t.team)o.push(teamLabel(t.team));if(t.noPhoto)o.push('Grafik ohne Foto');if(a.spieler)o.push('Torschütze');if(a.minute&&a.minute!=='aus')o.push('Minute');if(a.spielstand)o.push('Spielstand');if(a.torschuetzen)o.push('Torschützen');if(a.freitext)o.push(a.freitext);return o.length?o.join(' · '):(t.noPhoto?'Fertige Grafik':'Direkt zum Foto')}
 
 // ---------- Symbole ----------
 const IC={
@@ -745,6 +774,7 @@ function errNote(){
   if(S.err==='netz')return '<div class="note"><p>Keine Verbindung. Du siehst den Stand vom letzten Mal.</p></div>';
   return '';
 }
+function teamSeg(){return `<div class="seg hell teamseg" role="group" aria-label="Mannschaft">${TEAMS.map(([k,l])=>`<button data-act="team" data-v="${k}" aria-pressed="${S.team===k}">${l}</button>`).join('')}</div>`}
 function matchCard(){
   const m=S.match;
   if(!m||!m.gegner)return `<section class="card"><div class="title">Noch kein Spieltag festgelegt</div><p class="hint">${canMatch()?'Lege Gegner, Datum und Anstoß einmal fest. Alle Bilder übernehmen das automatisch.':'Sobald der Spieltag angelegt ist, siehst du ihn hier.'}</p>${canMatch()?'<button class="btn" data-act="match">Spieltag festlegen</button>':''}</section>`;
@@ -771,10 +801,11 @@ function vWelcome(){
 }
 function vHome(){
   const name=S.me&&S.me.name?S.me.name:'';
-  const list=visibleTemplates();
+  const list=visibleTemplates().filter(t=>!t.team||t.team===S.team);
   return `<div class="wrap">${brand(canEditHere()?`<button class="iconbtn" data-act="editor" aria-label="Einstellungen">${IC.gear}</button>`:'')}
   <h2 class="hello">Hallo${name?' '+h(name):''}</h2>
   ${errNote()}
+  ${teamSeg()}
   ${matchCard()}
   <div class="frage-z"><span class="frage">Was willst du posten?</span>${segFmt(S.fmt,'fmt',true)}</div>
   <div class="kacheln">${list.map((t,i)=>`<button class="kachel${t.recordGoal?' gold':''}" style="--i:${i}" data-act="pick" data-id="${h(t.id)}"><span class="kic">${tplIcon(t)}</span><span class="kt"><b>${h(t.name)}</b><small>${h(askSummary(t))}</small></span>${IC.chev}</button>`).join('')||'<section class="card"><p class="hint">Für dich sind noch keine Bilder freigegeben.</p></section>'}</div>
@@ -787,8 +818,8 @@ function installHint(){
 }
 function stepper(name,k,val,act){return `<div class="stp"><span class="nm">${h(name)}</span><div class="step"><button class="m" data-act="${act}" data-k="${k}" data-d="-1" aria-label="weniger">−</button><output class="num">${val||0}</output><button class="p" data-act="${act}" data-k="${k}" data-d="1" aria-label="mehr">+</button></div></div>`}
 function vMatch(){
-  const m=MD,v=S.settings.verein;
-  return `<div class="wrap">${topbar('Spieltag','home')}
+  const m=MD,v=ownName();
+  return `<div class="wrap">${topbar('Spieltag · '+teamLabel(MD.team),'home')}
   <section class="card">
    ${(()=>{const list=gegnerList(),known=list.some(g=>g.name===m.gegner),frei=MD.frei||(!!m.gegner&&!known);
      return `<label class="feld"><span>Gegner</span><select id="m_gsel">${!m.gegner&&!frei?'<option value="" selected>Bitte wählen</option>':''}${list.map(g=>`<option ${!frei&&g.name===m.gegner?'selected':''}>${h(g.name)}</option>`).join('')}<option value="__frei" ${frei?'selected':''}>Anderer Verein …</option></select></label>
@@ -815,7 +846,7 @@ function vInput(){
     <label class="feld"><span>Anderer Spieler · nur für dieses Bild</span><input id="in_free" data-in="free" value="${h(i.free?i.spieler:'')}" placeholder="Name eingeben" autocomplete="off"></label></section>`;
   }
   if(a.minute&&a.minute!=='aus')html+=`<section class="card"><label class="feld"><span>Minute${a.minute==='optional'?' · optional':''}</span><input id="in_min" data-in="minute" inputmode="numeric" value="${h(i.minute)}" placeholder="z. B. 67 oder 90+2" autocomplete="off"></label></section>`;
-  if(a.spielstand){const m=S.match||{};html+=`<section class="card"><div class="title">Spielstand</div>${stepper(S.settings.verein,'wir',i.wir,'step')}${stepper(m.gegner||'Gegner','sie',i.sie,'step')}</section>`}
+  if(a.spielstand){const m=S.match||{};html+=`<section class="card"><div class="title">Spielstand</div>${stepper(ownName(),'wir',i.wir,'step')}${stepper(m.gegner||'Gegner','sie',i.sie,'step')}</section>`}
   if(a.torschuetzen&&others.length){
     html+=`<section class="card"><div class="title">${t.recordGoal?'Andere Torschützen mit anzeigen?':'Torschützen mit anzeigen?'}</div>
     <div class="seg" role="group">${[[true,'Ja'],[false,'Nein']].map(([v,l])=>`<button data-act="scorers" data-v="${v}" aria-pressed="${!!i.showScorers===v}">${l}</button>`).join('')}</div>
@@ -863,12 +894,12 @@ function vResult(){
   }
   const canText=movableIds().length>0;
   if(F.isVideo)return vResultVideo(share,canText);
-  return `<div class="wrap">${topbar(F.tpl.name,'toSource')}
+  return `<div class="wrap">${topbar(F.tpl.name,F.tpl.noPhoto?(needsInput(F.tpl)?'toInput':'home'):'toSource')}
   <div class="stage">${F.adjust?'<canvas id="adj" class="adj"></canvas>':`<img id="outImg" alt="Fertiges Bild" ${F.url?`src="${F.url}"`:''}>`}</div>
   ${F.adjust?`<p class="note">Bild mit dem Finger verschieben, mit zwei Fingern zoomen.</p><section class="card"><label class="feld"><span>Zoom</span><input type="range" id="zoom" min="1" max="4" step="0.01" value="${F.tf.zoom}"></label></section><button class="btn gross" data-act="adjustDone">Fertig</button>`:
   `<button class="btn gross weiss" data-act="share">${IC.share}${share?'Teilen oder sichern':'Bild herunterladen'}</button>
   ${canAushang()?`<button class="btn glas" data-act="aushangAsk">${F.aushangBis?'Läuft auf dem Aushang · '+h(fmtBis(F.aushangBis)):'Auch auf den Aushang?'}</button>`:''}
-  <div class="reihe"><button class="btn glas" data-act="adjust">Ausschnitt anpassen</button>${canText?'<button class="btn glas" data-act="textMode">Text anpassen</button>':''}</div>
+  <div class="reihe">${F.photo?'<button class="btn glas" data-act="adjust">Ausschnitt anpassen</button>':''}${canText?'<button class="btn glas" data-act="textMode">Text anpassen</button>':''}</div>
   <div class="reihe">${segFmt(F.fmt,'resFmt',true)}</div>
   <button class="btn gross" data-act="home">Fertig</button>`}</div>`;
 }
@@ -909,7 +940,7 @@ function aushangSheet(){
 // ---------- Einstellungen (nur am PC) ----------
 const TF=()=>E.tab==='tafel';
 function draft(){if(TF()){if(!E.tdraft)E.tdraft=[clone(tafelTpl())];return E.tdraft}if(!E.draft)E.draft=clone(S.templates);return E.draft}
-const TAFEL_PH=[['heim','Heimteam'],['gast','Gastteam'],['tore_heim','Tore Heim'],['tore_gast','Tore Gast'],['spielzeit','Spielzeit 67:12'],['phase','z. B. 2. Halbzeit'],['torschuetzen_heim','Torschützen Heim'],['torschuetzen_gast','Torschützen Gast'],['torschuetzen','Alle Torschützen'],['gegner','Gegner'],['verein','Verein'],['datum','Datum: Mo, 19.10.2026'],['datum_kurz','Datum: 19.10.26'],['datum_voll','Datum: 19.10.2026'],['wochentag','Wochentag'],['anstoss','Anstoß'],['spielstaette','Spielstätte']];
+const TAFEL_PH=[['heim','Heimteam'],['gast','Gastteam'],['tore_heim','Tore Heim'],['tore_gast','Tore Gast'],['spielzeit','Spielzeit 67:12'],['phase','z. B. 2. Halbzeit'],['torschuetzen_heim','Torschützen Heim'],['torschuetzen_gast','Torschützen Gast'],['torschuetzen','Alle Torschützen'],['gegner','Gegner'],['verein','Verein'],['mannschaft','1. / 2. Mannschaft'],['datum','Datum: Mo, 19.10.2026'],['datum_kurz','Datum: 19.10.26'],['datum_voll','Datum: 19.10.2026'],['wochentag','Wochentag'],['anstoss','Anstoß'],['spielstaette','Spielstätte']];
 function vEditor(){
   const tabs=[['vorlagen','Vorlagen'],['spieler','Spieler'],['gegner','Gegner'],['personen','Personen'],['aushang','Aushang'],['tafel','Live-Tafel'],['verein','Verein']];
   const body=(E.tab==='vorlagen'||E.tab==='tafel')?edTemplates():E.tab==='aushang'?edAushang():E.tab==='spieler'?edPlayers():E.tab==='gegner'?edGegner():E.tab==='personen'?edPeople():edClub();
@@ -929,7 +960,7 @@ function edTemplates(){
   <div class="prev"><div class="frage-z">${tf?'<span class="frage">Stele 9:16</span>':segFmt(E.fmt,'edFmt',true)}<span class="note">Texte auf dem Bild ziehen</span></div>
    <div class="stage"><canvas id="edc"></canvas></div>
    <section class="card"><div><div class="title">${tf?'Hintergrund':'Overlay '+FMT[E.fmt].label}</div><div class="sub">${tf?'Bild mit 1080 × 1920 Pixeln, z. B. mit Vereinsfarben oder Sponsoren. Ohne Bild gibt es einen Hintergrund in Vereinsblau.':'PNG mit '+FMT[E.fmt].w+' × '+FMT[E.fmt].h+' Pixeln, durchsichtig wo das Foto durchscheinen soll'}</div></div>
-    <div class="ovrow"><span class="stat${ov?' ok':''}">${ov?'Eigenes Bild aktiv':tf?'Vereinsblau':'Platzhalter aktiv'}</span><span style="flex:1"></span>
+    <div class="ovrow"><span class="stat${ov?' ok':''}">${ov?'Eigenes Bild aktiv':(tf||t.noPhoto)?'Vereinsblau':'Platzhalter aktiv'}</span><span style="flex:1"></span>
     <button class="btn klein" data-act="ovUpload">${ov?'Ersetzen':'PNG hochladen'}</button>${ov?'<button class="btn rot klein" data-act="ovRemove">Entfernen</button>':''}</div></section></div>
   <div class="props">
    ${tf?`<section class="card"><div class="title">Rückkehr zur Diashow</div>
@@ -938,7 +969,9 @@ function edTemplates(){
     <button class="btn hell klein" data-act="tafNach">Übernehmen</button></section>`:`<section class="card"><div class="title">Button</div>
     <label class="feld"><span>Name auf dem Button</span><input id="t_name" data-ed="t.name" value="${h(t.name)}"></label>
     <label class="feld"><span>Titel im Platzhalter</span><input id="t_title" data-ed="t.title" value="${h(t.title)}"></label>
-    <p class="hint">Der Titel erscheint nur, solange kein eigenes PNG hochgeladen ist.</p></section>
+    <p class="hint">Der Titel erscheint nur, solange kein eigenes PNG hochgeladen ist.</p>
+    <label class="feld"><span>Mannschaft</span><select id="t_team" data-ed="t.team"><option value="" ${!t.team?'selected':''}>Die auf der Startseite gewählte</option>${TEAMS.map(([k,l])=>`<option value="${k}" ${t.team===k?'selected':''}>Immer ${l}</option>`).join('')}</select></label>
+    <label class="sw"><span class="t">Ohne Foto (nur Grafik)<small>Es wird nicht nach Foto oder Video gefragt. Das Bild entsteht nur aus Hintergrund und Spieltag-Daten.</small></span><input type="checkbox" id="t_np" data-ed="t.noPhoto" ${t.noPhoto?'checked':''}></label></section>
    <section class="card"><div class="title">Was wird abgefragt?</div>
     <label class="sw"><span class="t">Torschütze aus der Spielerliste</span><input type="checkbox" id="a_sp" data-ed="a.spieler" ${a.spieler?'checked':''}></label>
     <label class="feld"><span>Minute</span><select id="a_min" data-ed="a.minute">${[['aus','nicht abfragen'],['optional','optional'],['pflicht','Pflicht']].map(([k,l])=>`<option value="${k}" ${a.minute===k?'selected':''}>${l}</option>`).join('')}</select></label>
@@ -981,8 +1014,10 @@ function edTemplates(){
   <div class="bar"><span class="txt"><b>${E.dirty?'Nicht gespeichert':'Alles gespeichert'}</b><small>${tf?'Nach dem Speichern erscheint es auf der Stele, sobald die Tafel läuft':'Nach dem Speichern sehen es alle sofort am Handy'}</small></span>${E.dirty?'<button class="btn hell" data-act="tplDiscard">Verwerfen</button>':''}<button class="btn" data-act="tplSave" ${E.dirty?'':'disabled'}>Speichern</button></div>`;
 }
 function edPlayers(){
+  E.pteam=E.pteam||'m1';
   const pl=S.players.slice().sort((a,b)=>nachname(a).localeCompare(nachname(b),'de')||a.localeCompare(b,'de'));
-  return `<div class="cols"><section class="card"><div class="title">Spieler hinzufügen</div>
+  return `<div class="seg hell teamseg" role="group">${TEAMS.map(([k,l])=>`<button data-act="pTeam" data-v="${k}" aria-pressed="${E.pteam===k}">${l}</button>`).join('')}</div>
+  <div class="cols"><section class="card"><div class="title">Spieler ${teamLabel(E.pteam)} hinzufügen</div>
    <div class="reihe"><input class="eingabe" id="p_one" placeholder="Vor- und Nachname" autocomplete="off" style="flex:3 1 200px"><button class="btn" data-act="plAdd">Hinzufügen</button></div>
    <label class="feld"><span>Mehrere auf einmal · ein Name pro Zeile</span><textarea id="p_many" rows="6"></textarea></label>
    <button class="btn hell" data-act="plAddMany">Alle hinzufügen</button>
@@ -1035,6 +1070,7 @@ function edClub(){
   const s=S.settings;
   return `<div class="cols"><section class="card"><div class="title">Verein</div>
    <label class="feld"><span>Vereinsname auf den Bildern</span><input id="c_v" value="${h(s.verein)}"></label>
+   <label class="feld"><span>Name der 2. Mannschaft auf den Bildern</span><input id="c_n2" value="${h(s.name2||'')}" placeholder="${h((s.verein||'SV Etteln')+' II')}"></label>
    <label class="feld"><span>Eigene Spielstätte · wird bei Heimspielen vorgeschlagen</span><input id="c_p" value="${h(s.platz||'')}" placeholder="z. B. Sportplatz Etteln"></label>
    <div class="zwei"><label class="feld"><span>Vereinsfarbe</span><input type="color" id="c_f" value="${h(s.farbe)}"></label>
    <label class="feld"><span>Akzentfarbe</span><input type="color" id="c_a" value="${h(s.akzent)}"></label></div>
@@ -1201,7 +1237,7 @@ async function compose(){
   const {w,h:H}=FMT[F.fmt],c=document.createElement('canvas');c.width=w;c.height=H;
   await fontsReady;await crestReady();const ov=await prepOverlay(F.tpl,F.fmt);F.ov=ov;
   const cx=c.getContext('2d');cx.imageSmoothingEnabled=true;cx.imageSmoothingQuality='high';
-  clampTf(F.photo,w,H,F.tf);
+  if(F.photo)clampTf(F.photo,w,H,F.tf);
   F.boxes=renderCanvas(cx,{W:w,H,tpl:F.tpl,fmt:F.fmt,vars:buildVars(F.input,F.goalId),photo:F.photo,tf:F.tf,ov,ovr:F.ovr});
   if(!F.adjust&&F.mode!=='text'){const b=$('[data-act=adjust]');if(b&&movableIds().length&&!$('[data-act=textMode]')){const t=document.createElement('button');t.className='btn glas';t.dataset.act='textMode';t.textContent='Text anpassen';b.after(t)}}
   const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',.95));
@@ -1267,7 +1303,7 @@ function commitMatch(){
   const t=F.tpl,sig=JSON.stringify([F.input.spieler,F.input.minute,F.input.wir,F.input.sie]);
   if(!(t.recordGoal||t.ask.spielstand)||F.committed===sig)return;
   F.committed=sig;
-  const body={a:'goal',score:!!t.ask.spielstand,wir:F.input.wir,sie:F.input.sie};
+  const body={a:'goal',team:F.team,score:!!t.ask.spielstand,wir:F.input.wir,sie:F.input.sie};
   if(t.recordGoal&&F.input.spieler)body.goal={id:F.goalId,spieler:F.input.spieler,minute:F.input.minute||''};
   call(body).catch(e=>toast('Spielstand nicht gespeichert: '+errText(e)));
 }
@@ -1277,9 +1313,11 @@ function fileName(ext){return `${F.tpl.name.toLowerCase().replace(/[^a-z0-9äö�
 function needsInput(t){const a=t.ask;return a.spieler||(a.minute&&a.minute!=='aus')||a.spielstand||a.freitext||(a.torschuetzen&&goalsGrouped(null).length)}
 function startFlow(id){
   const t=S.templates.find(x=>x.id===id);if(!t)return;
+  F={team:t.team||S.team};
   const m=S.match||{};
   const ci=clockInfo(),autoMin=(ci&&m.autoMin!==false&&ci.phase!=='ende')?ci.minute:'';
-  F={tpl:clone(t),fmt:S.fmt,goalId:t.recordGoal?uidGen():null,input:{spieler:'',free:false,minute:(t.ask.minute&&t.ask.minute!=='aus')?autoMin:'',wir:(m.wir||0)+(t.recordGoal?1:0),sie:m.sie||0,text:'',showScorers:false},tf:{zoom:1,ox:0,oy:0},photo:null,url:null,cam:{facing:'environment'},ovr:{},mode:'img'};
+  F={tpl:clone(t),fmt:S.fmt,goalId:t.recordGoal?uidGen():null,input:{spieler:'',free:false,minute:(t.ask.minute&&t.ask.minute!=='aus')?autoMin:'',wir:(m.wir||0)+(t.recordGoal?1:0),sie:m.sie||0,text:'',showScorers:false},tf:{zoom:1,ox:0,oy:0},photo:null,url:null,cam:{facing:'environment'},ovr:{},mode:'img',team:t.team||S.team};
+  if(t.noPhoto&&!needsInput(t)){F.isVideo=false;go('result');return}
   go(needsInput(t)?'input':'source');
 }
 function loadPhoto(file){
@@ -1362,7 +1400,7 @@ function edApply(el,isChange){
 }
 function checkedButtons(k){const all=[...document.querySelectorAll(`[data-pb="${k}"]`)];const on=all.filter(x=>x.checked).map(x=>x.value);return on.length===all.length?[]:on}
 function saveGegner(list){const set={...S.settings,gegner:list};S.settings=set;render();call({a:'cfg',set}).catch(e=>{toast('Nicht gespeichert: '+errText(e));refresh()})}
-function savePlayers(list){const l=[...new Set(list)];S.players=l;render();call({a:'cfg',players:l}).catch(e=>{toast('Nicht gespeichert: '+errText(e));refresh()})}
+function savePlayers(list){const l=[...new Set(list)],tm=E.pteam||'m1';S.playersBy[tm]=l;render();call({a:'cfg',players:l,team:tm}).catch(e=>{toast('Nicht gespeichert: '+errText(e));refresh()})}
 function connect(text){
   const c=parseLink(text);
   if(!c){
@@ -1391,7 +1429,7 @@ const actions={
     if(S.view==='input'){const a=F.tpl.ask;
       if(a.spieler&&!F.input.spieler){toast('Bitte einen Torschützen wählen.');return}
       if(a.minute==='pflicht'&&!String(F.input.minute).trim()){toast('Bitte die Minute eintragen.');return}}
-    F.url=null;go('source')},
+    F.url=null;if(F.tpl.noPhoto){F.isVideo=false;F.photo=null;go('result');return}go('source')},
   cam(){go('cam')},
   gal(){$('#fileGal').click()},
   vidCam(){$('#fileVidCam').click()},
@@ -1422,7 +1460,7 @@ const actions={
     if(navigator.canShare&&navigator.canShare({files:[file]})){try{await navigator.share({files:[file]})}catch(e){}return}
     const a=document.createElement('a');a.href=F.url;a.download=file.name;document.body.appendChild(a);a.click();a.remove();
   },
-  match(){S.platzListe=ls.get('sb-plaetze')||[];MD=clone(S.match||{gegner:'',ort:'heim',datum:todayISO(),anstoss:'15:00',platz:S.settings.platz||'',wir:0,sie:0,tore:[]});MD.tore=MD.tore||[];E.confirm=null;go('match')},
+  match(){S.platzListe=ls.get('sb-plaetze')||[];MD=null;const tm=S.team;MD=clone(S.matches[tm]||{gegner:'',ort:'heim',datum:todayISO(),anstoss:'15:00',platz:S.settings.platz||'',wir:0,sie:0,tore:[]});MD.team=tm;MD.tore=MD.tore||[];E.confirm=null;go('match')},
   mdOrt(b){MD.ort=b.dataset.v;if(MD.ort==='heim'&&!MD.platz&&S.settings.platz)MD.platz=S.settings.platz;render()},
   mdstep(b){const k=b.dataset.k;MD[k]=Math.max(0,(MD[k]||0)+ +b.dataset.d);render()},
   mdDelGoal(b){MD.tore=MD.tore.filter(g=>g.id!==b.dataset.id);render()},
@@ -1430,19 +1468,20 @@ const actions={
     if(MD.frei){MD.gegner=(MD.gegner||'').trim();const g=gegnerList().find(x=>x.name.toLowerCase()===MD.gegner.toLowerCase());MD.gegnerWappen=g&&g.wappen||null;
       if(MD.merk&&isAdmin()&&MD.gegner&&!g)saveGegner([...gegnerList(),{name:MD.gegner,wappen:null}])}
     MD.platz=(MD.platz||'').trim();if(MD.platz){const l=ls.get('sb-plaetze')||[];ls.set('sb-plaetze',[MD.platz,...l.filter(x=>x!==MD.platz)].slice(0,15))}
-    const md=clone(MD),old=S.match;delete md.frei;delete md.merk;S.match={...md,clock:md.newClock?{phase:'none'}:((old&&old.clock)||{phase:'none'})};delete S.match.newClock;F=null;MD=null;E.confirm=null;go('home');toast('Spieltag gespeichert');
-    call({a:'match',match:md,resetClock:!!md.newClock}).then(()=>rerenderSoft()).catch(e=>{toast('Nicht gespeichert: '+errText(e));refresh()})},
+    const tm=MD.team||S.team,md=clone(MD),old=S.matches[tm];delete md.frei;delete md.merk;delete md.team;S.matches[tm]={...md,clock:md.newClock?{phase:'none'}:((old&&old.clock)||{phase:'none'})};delete S.matches[tm].newClock;F=null;MD=null;E.confirm=null;go('home');toast('Spieltag gespeichert');
+    call({a:'match',team:tm,match:md,resetClock:!!md.newClock}).then(()=>rerenderSoft()).catch(e=>{toast('Nicht gespeichert: '+errText(e));refresh()})},
   askNewMatch(){E.confirm='newmatch';render()},
   mdNew(){MD={gegner:'',ort:'heim',datum:todayISO(),anstoss:'15:00',wir:0,sie:0,tore:[],autoMin:MD.autoMin!==false,newClock:true};E.confirm=null;render()},
   clock(b){const cmd=b.dataset.v,now=Date.now()+S.off,m=S.match||{gegner:'',ort:'heim',tore:[],wir:0,sie:0},c=m.clock||{phase:'none'};
     if(cmd==='h1')m.clock={phase:'h1',start:now,base:0};else if(cmd==='h2')m.clock={phase:'h2',start:now,base:45};
     else{const ci=clockInfo();m.clock={phase:cmd,at:(c.phase==='h1'||c.phase==='h2')?c.base*60000+(now-c.start):(c.at||0)}}
-    S.match=m;render();
-    call({a:'clock',cmd}).then(()=>render()).catch(e=>{toast('Uhr nicht gespeichert: '+errText(e));refresh()})},
-  tafelToggle(b){const on=!tafelActive();S.tafel={...(S.tafel||{nach:30}),on,since:Date.now()+S.off};render();toast(on?'Live-Tafel erscheint gleich auf dem Aushang':'Aushang zeigt gleich wieder die Diashow');
-    call({a:'tafel',on}).catch(e=>{toast('Nicht gespeichert: '+errText(e));refresh()})},
+    S.matches[S.team]=m;render();
+    call({a:'clock',cmd,team:S.team}).then(()=>render()).catch(e=>{toast('Uhr nicht gespeichert: '+errText(e));refresh()})},
+  team(b){S.team=b.dataset.v;ls.set('sb-team',S.team);render()},
+  tafelToggle(b){const other=S.tafel&&S.tafel.on&&(S.tafel.team||'m1')!==S.team,on=other||!tafelActive();S.tafel={...(S.tafel||{nach:30}),on,team:S.team,since:Date.now()+S.off};render();toast(on?'Live-Tafel erscheint gleich auf dem Aushang':'Aushang zeigt gleich wieder die Diashow');
+    call({a:'tafel',on,team:S.team}).catch(e=>{toast('Nicht gespeichert: '+errText(e));refresh()})},
   askClockReset(){E.confirm='clockreset';render()},
-  async clockReset(){try{await call({a:'clock',cmd:'reset'});E.confirm=null;render();toast('Uhr zurückgesetzt')}catch(e){toast(errText(e))}},
+  async clockReset(){try{await call({a:'clock',cmd:'reset',team:MD&&MD.team||S.team});E.confirm=null;render();toast('Uhr zurückgesetzt')}catch(e){toast(errText(e))}},
   cancelConfirm(){E.confirm=null;render()},
   editor(){E.draft=null;E.dirty=false;E.confirm=null;edOvKey='';go('editor')},
   leaveEditor(){if(E.dirty&&E.confirm!=='leave'){E.confirm='leave';toast('Nicht gespeichert. Nochmal tippen zum Verlassen.');return}E.draft=null;E.tdraft=null;E.dirty=false;E.confirm=null;S.templates=S.templates;go('home')},
@@ -1466,7 +1505,8 @@ const actions={
   async tplSave(b){if(TF()){b.disabled=true;const t=clone(draft()[0]);S.tafel={...(S.tafel||{}),tpl:t};E.dirty=false;E.tdraft=null;render();
       try{await call({a:'cfg',tafelTpl:t});toast('Live-Tafel gespeichert')}catch(e){E.tdraft=[t];E.dirty=true;render();toast('Nicht gespeichert: '+errText(e))}return}
     b.disabled=true;const d=clone(draft());S.templates=d;E.dirty=false;E.draft=null;render();
-    try{await call({a:'cfg',tpl:d});toast('Gespeichert. Alle sehen es jetzt am Handy.')}catch(e){E.draft=d;E.dirty=true;render();toast('Nicht gespeichert: '+errText(e))}},
+    try{await call({a:'cfg',tpl:d,...(S.settings.grMig?{}:{set:{...S.settings,grMig:true}})});toast('Gespeichert. Alle sehen es jetzt am Handy.')}catch(e){E.draft=d;E.dirty=true;render();toast('Nicht gespeichert: '+errText(e))}},
+  pTeam(b){E.pteam=b.dataset.v;render()},
   plAdd(){const v=$('#p_one').value.trim();if(v)savePlayers([...S.players,v])},
   plAddMany(){const v=$('#p_many').value.split('\n').map(x=>x.trim()).filter(Boolean);if(v.length)savePlayers([...S.players,...v])},
   gAdd(){const n=$('#g_name').value.trim();if(!n)return;const l=gegnerList();if(l.some(g=>g.name.toLowerCase()===n.toLowerCase())){toast('Diesen Verein gibt es schon.');return}saveGegner([...l,{name:n,wappen:null}])},
@@ -1496,7 +1536,7 @@ const actions={
   async aVerbinden(b){const link=$('#a_link').value.trim();if(!link){toast('Bitte den Einladungslink einfügen.');return}
     const m=API_RE.exec(S.con.url);b.disabled=true;b.textContent='Wird verbunden …';
     try{await call({a:'aushangSetup',link,sid:m[2],dom:m[1]||'',app:appUrl()});E.aNeu=false;render();toast('Aushang verbunden')}catch(e){b.disabled=false;b.textContent='Verbinden';toast(errText(e))}},
-  async clubSave(){try{await call({a:'cfg',set:{...S.settings,verein:$('#c_v').value.trim()||'SV Etteln',platz:$('#c_p').value.trim(),farbe:$('#c_f').value,akzent:$('#c_a').value}});render();toast('Gespeichert')}catch(e){toast(errText(e))}},
+  async clubSave(){try{await call({a:'cfg',set:{...S.settings,verein:$('#c_v').value.trim()||'SV Etteln',name2:$('#c_n2').value.trim(),platz:$('#c_p').value.trim(),farbe:$('#c_f').value,akzent:$('#c_a').value}});render();toast('Gespeichert')}catch(e){toast(errText(e))}},
   sheetClose(){E.sheet=null;render()},
   sheetBg(b,e){if(e.target===b){E.sheet=null;E.aushang=false;render()}},
   aushangAsk(){E.aushang=true;E.aushangBis=null;render()},
@@ -1847,6 +1887,7 @@ async function exportVideo(){
 }
 
 // ---------- Start ----------
+{const t=ls.get('sb-team');if(t==='m1'||t==='m2')S.team=t}
 (function init(){
   const fromUrl=parseLink(location.href);
   const standalone=navigator.standalone||matchMedia('(display-mode: standalone)').matches;
