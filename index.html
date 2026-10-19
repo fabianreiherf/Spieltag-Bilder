@@ -101,7 +101,7 @@ div.note p { margin: 0; }
 /* Anzeigetafel */
 .board { color: var(--on-bg); background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.2); border-radius: 22px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .board .teams { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); align-items: center; gap: 12px; }
-.board .tm { font-weight: 800; font-size: .95rem; line-height: 1.2; overflow-wrap: anywhere; }
+.board .tm { font-weight: 800; font-size: .95rem; line-height: 1.2; overflow-wrap: break-word; hyphens: auto; -webkit-hyphens: auto; }
 .board .tm.r { text-align: right; }
 .board .sc { background: #fff; color: #20317f; border-radius: 14px; padding: 6px 14px; font-weight: 800; font-size: 2rem; line-height: 1; box-shadow: 0 6px 16px rgba(0,0,0,.3); }
 .board .sc i { font-style: normal; opacity: .5; margin: 0 2px; }
@@ -320,6 +320,13 @@ div.note p { flex: 1 1 180px; text-align: left; }
 .wthumb.leer { display: inline-block; border: 1.5px dashed var(--line); background: none; }
 .mini.scharf { background: var(--danger); color: #fff; }
 .row .mini + .mini { margin-left: 4px; }
+.tafelzeile { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.18); }
+.tafelzeile .tlab { flex: 1 1 160px; min-width: 0; font-size: .8rem; font-weight: 700; color: var(--on-bg-2); }
+.live { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #ff4d4d; margin-right: 7px; vertical-align: middle; animation: atmen 1.2s ease-in-out infinite; }
+body.tafelmodus { padding: 0; background: #000; overflow: hidden; }
+body.tafelmodus::before { display: none; }
+.tafelcanvas { position: fixed; inset: 0; margin: auto; width: 100vw; height: 100vh; object-fit: contain; display: block; background: #000; }
+code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85em; background: var(--field); border-radius: 6px; padding: 1px 5px; }
 </style>
 </head>
 <body>
@@ -392,6 +399,8 @@ function parseLink(text){
   text=String(text||'').replace(/[\s\u200b-\u200d\ufeff]+/g,'');
   let m=/[?&]e=([A-Za-z0-9_.~-]+)/.exec(text);
   if(m){const p=m[1].split('~');if(/^[A-Za-z0-9_-]{20,200}$/.test(p[0]||'')&&/^[a-z0-9]{16,64}$/i.test(p[1]||''))return{url:'https://script.google.com/'+(p[2]?'a/macros/'+p[2]+'/':'macros/')+'s/'+p[0]+'/exec',k:p[1],admin:false,raw:appUrl()+'?e='+m[1]}}
+  m=/[?&]tafel=([A-Za-z0-9_.~-]+)/.exec(text);
+  if(m){const p=m[1].split('~');if(/^[A-Za-z0-9_-]{20,200}$/.test(p[0]||'')&&/^[a-z0-9]{16,64}$/i.test(p[1]||''))return{url:'https://script.google.com/'+(p[2]?'a/macros/'+p[2]+'/':'macros/')+'s/'+p[0]+'/exec',k:p[1],tafel:true}}
   m=API_RE.exec(text);
   if(m){const k=/[?&]k=([a-z0-9]+)/i.exec(text);if(k)return{url:m[0],k:k[1],admin:true,raw:m[0]+'?k='+k[1]}}
   return null;
@@ -412,9 +421,9 @@ async function call(body){
 let lastSig='';
 function take(d){
   if(d.now)S.off=d.now-Date.now();
-  const sig=JSON.stringify([d.me,d.set,d.tpl,d.players,d.match,d.pers]);
+  const sig=JSON.stringify([d.me,d.set,d.tpl,d.players,d.match,d.pers,d.tafel,d.aushang]);
   if(sig===lastSig&&!E.dirty)return false;lastSig=sig;
-  S.me=d.me;S.settings={...DEF_SETTINGS,...(d.set||{})};S.players=d.players||[];S.match=d.match||null;S.pers=d.pers||[];
+  S.me=d.me;S.tafel=d.tafel||null;S.aushang=d.aushang||null;S.settings={...DEF_SETTINGS,...(d.set||{})};S.players=d.players||[];S.match=d.match||null;S.pers=d.pers||[];
   if(!E.dirty){S.templates=Array.isArray(d.tpl)&&d.tpl.length?d.tpl:defaultTemplates();E.draft=null}
   ls.set('sb-data',d);
   if((S.settings.fonts||[]).length)loadCustomFonts().then(()=>{if(S.view==='editor')drawEditor()});
@@ -425,6 +434,11 @@ function errText(e){
   if(e&&e.code==='recht')return 'Dafür hast du keine Berechtigung.';
   if(e&&e.code==='besetzt')return 'Der Speicher ist gerade beschäftigt. Versuch es gleich noch einmal.';
   if(e&&e.code==='gross')return 'Das ist zu groß zum Speichern.';
+  if(e&&e.code==='aushangLink')return 'Das ist kein Einladungslink aus der Aushang-App. Er sieht so aus: https://…/admin?k=…';
+  if(e&&e.code==='aushangRolle')return 'Dieser Aushang-Zugang hat keine Admin-Rechte. Stell die Person in der Aushang-App auf Admin.';
+  if(e&&e.code==='aushangKey')return 'Der Aushang kennt diesen Zugang nicht mehr. Bitte am PC neu verbinden.';
+  if(e&&(e.code==='aushangWeg'||e.code==='aushangFehler'))return 'Der Aushang ist gerade nicht erreichbar. Ist der PC am Sportplatz an?';
+  if(e&&e.code==='aushangFehlt')return 'Der Aushang ist noch nicht verbunden.';
   return 'Keine Verbindung. Prüfe dein Internet und versuch es noch einmal.';
 }
 let loading=null;
@@ -528,14 +542,22 @@ function crestImg(key){
   return null;
 }
 function crestReady(demo){return Promise.all(['heim','gast'].map(sd=>{const k=crestKey(sd,demo);if(!k)return null;crestImg(k);return crestCache[k]&&crestCache[k].p}))}
-let crestT=0;function onCrest(){clearTimeout(crestT);crestT=setTimeout(()=>{if(S.view==='editor'){if(E.tab==='vorlagen')drawEditor();else render()}else if(S.view==='result'&&F&&F.mode==='text')drawText()},30)}
+let crestT=0;function onCrest(){clearTimeout(crestT);crestT=setTimeout(()=>{if(S.view==='tafel'){drawTafel();return}if(S.view==='editor'){if(E.tab==='vorlagen')drawEditor();else render()}else if(S.view==='result'&&F&&F.mode==='text')drawText()},30)}
 const gegnerList=()=>(Array.isArray(S.settings.gegner)?S.settings.gegner:DEFAULT_GEGNER).slice().sort((a,b)=>a.name.localeCompare(b.name,'de'));
+function drawTafelBg(ctx,W,H){
+  const st=S.settings,g=ctx.createLinearGradient(0,0,W*.3,H);g.addColorStop(0,hexA(st.farbe||'#20317f',1));g.addColorStop(1,'#0b1238');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  ctx.save();ctx.strokeStyle='rgba(255,255,255,.07)';ctx.lineWidth=W*.006;
+  ctx.beginPath();ctx.moveTo(0,H*.5);ctx.lineTo(W,H*.5);ctx.stroke();ctx.beginPath();ctx.arc(W/2,H*.5,W*.28,0,Math.PI*2);ctx.stroke();ctx.restore();
+}
 function resolveText(text,vars){let empty=false;const out=String(text||'').replace(/\{(\w+)\}/g,(m,k)=>{const v=vars[k];if(v==null||v===''){empty=true;return''}return String(v)});return empty?null:out}
 function renderCanvas(ctx,o){
   const {W,H,tpl,fmt,vars,photo,tf,ov,demo,clear,mirror,ovr}=o;
   ctx.clearRect(0,0,W,H);
+  if(tpl.kind==='tafel'){if(ov)ctx.drawImage(ov,0,0,W,H);else drawTafelBg(ctx,W,H)}
+  else{
   if(photo)drawCover(ctx,photo,W,H,tf,mirror);else if(demo)drawPitch(ctx,W,H);else if(!clear){ctx.fillStyle='#1d2a5a';ctx.fillRect(0,0,W,H)}
-  if(ov)ctx.drawImage(ov,0,0,W,H);else drawPlaceholder(ctx,W,H,tpl,fmt);
+  if(ov)ctx.drawImage(ov,0,0,W,H);else drawPlaceholder(ctx,W,H,tpl,fmt);}
   const boxes=[];
   (tpl.elements||[]).forEach((el,i)=>{
     const m=(ovr&&ovr[el.id])||null;
@@ -551,8 +573,10 @@ function renderCanvas(ctx,o){
     }
     const t=(m&&typeof m.txt==='string')?m.txt:resolveText(el.text,vars);if(t==null||t.trim()==='')return;
     const p=el[fmt]||el.story;
-    const size=p.size*W/1080*(m?m.s:1),lh=size*1.08,upper=el.upper||FONT_UPPER[el.font];
+    let size=p.size*W/1080*(m?m.s:1);const upper=el.upper||FONT_UPPER[el.font];
     const lines=t.split('\n').map(l=>upper?l.toUpperCase():l);
+    if(el.maxw>0){ctx.save();ctx.font=fontStr(el,size);const mw0=Math.max(...lines.map(l=>ctx.measureText(l).width));ctx.restore();const lim=el.maxw/100*W;if(mw0>lim)size*=lim/mw0}
+    const lh=size*1.08;
     const x=(p.x+(m?m.dx:0))*W,y=(p.y+(m?m.dy:0))*H,rot=((Number(el.rot)||0)+(m?m.r:0))*Math.PI/180;
     ctx.save();ctx.translate(x,y);if(rot)ctx.rotate(rot);
     ctx.font=fontStr(el,size);ctx.textAlign=el.align||'center';ctx.textBaseline='middle';ctx.fillStyle=(m&&m.c)||el.color||'#fff';
@@ -617,6 +641,12 @@ function clockInfo(){
   const label={h1:'1. Halbzeit',pause:'Halbzeitpause',h2:'2. Halbzeit',ende:'Abpfiff'}[c.phase];
   return {run,phase:c.phase,text:String(mm).padStart(2,'0')+':'+String(ss).padStart(2,'0'),minute,label};
 }
+function tafelHtml(){
+  if(!(S.aushang&&S.aushang.verbunden)||!canMatch())return '';
+  const on=tafelActive(),back=tafelBackAt();
+  const txt=on?(back?'Live-Tafel läuft · Diashow kommt um '+new Date(back).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})+' zurück':'Live-Tafel läuft auf dem Aushang'):'Aushang zeigt die Diashow';
+  return `<div class="tafelzeile"><span class="tlab">${on?'<i class="live"></i>':''}${h(txt)}</span><button class="btn ${on?'weiss':'gold'} klein" data-act="tafelToggle">${on?'Diashow zeigen':'Live-Tafel zeigen'}</button></div>`;
+}
 function clockHtml(){
   const ci=clockInfo(),m=S.match||{},can=canMatch();
   const next=!ci?['h1','Start 1. Halbzeit']:ci.phase==='h1'?['pause','Halbzeit']:ci.phase==='pause'?['h2','Start 2. Halbzeit']:ci.phase==='h2'?['ende','Abpfiff']:null;
@@ -632,6 +662,34 @@ function buildVars(inp,goalId){
     spieler:inp.spieler||'',minute:inp.minute||'',datum:fmtDate(m.datum),anstoss:m.anstoss||'',text:inp.text||'',
     torschuetzen:inp.showScorers?goalsGrouped(goalId).join('\n'):''};
 }
+function tafelVars(sample){
+  const m=S.match||{},verein=S.settings.verein||'',g=m.gegner||(sample?'TuS Beispielstadt':''),heimSpiel=m.ort!=='auswaerts';
+  const wir=sample&&!S.match?2:(m.wir||0),sie=sample&&!S.match?1:(m.sie||0),ci=clockInfo();
+  const sc=sample&&!(m.tore||[]).length?["Schmidt 12'","Meier 41'"]:goalsGrouped(null);
+  const zeit=ci?ci.text:(sample?'67:12':''),phase=ci?ci.label:(sample?'2. Halbzeit':'');
+  return {verein,gegner:g,heim:heimSpiel?verein:g,gast:heimSpiel?g:verein,tore_heim:heimSpiel?wir:sie,tore_gast:heimSpiel?sie:wir,
+    spielzeit:zeit,phase,datum:fmtDate(m.datum||(sample?todayISO():'')),anstoss:m.anstoss||(sample?'15:00':''),
+    torschuetzen:sc.join('\n'),torschuetzen_heim:heimSpiel?sc.join('\n'):'',torschuetzen_gast:heimSpiel?'':sc.join('\n'),text:''};
+}
+function defaultTafel(){return {id:'tafel',kind:'tafel',name:'Live-Tafel',title:'',ask:ask({}),recordGoal:false,overlay:{story:null,post:null},elements:[
+  {id:'w1',type:'img',label:'Wappen Heim',src:'heim',shadow:true,rot:0,story:{x:.27,y:.13,size:300},post:{x:.27,y:.13,size:260}},
+  {id:'w2',type:'img',label:'Wappen Gast',src:'gast',shadow:true,rot:0,story:{x:.73,y:.13,size:300},post:{x:.73,y:.13,size:260}},
+  mkEl('t1','Heimteam','{heim}','Montserrat',true,WH,[.27,58],[.27,52],{maxw:44}),
+  mkEl('t2','Gastteam','{gast}','Montserrat',true,WH,[.27,58],[.27,52],{maxw:44}),
+  mkEl('t3','Spielstand','{tore_heim} : {tore_gast}','Bebas Neue',false,WH,[.42,380],[.42,320]),
+  mkEl('t4','Spielzeit','{spielzeit}','Bebas Neue',false,AC,[.6,170],[.6,150]),
+  mkEl('t5','Phase','{phase}','Montserrat',true,WH,[.67,52],[.67,46]),
+  mkEl('t6','Torschützen Heim','{torschuetzen_heim}','Montserrat',true,WH,[.8,46],[.8,40],{upper:false,maxw:44}),
+  mkEl('t7','Torschützen Gast','{torschuetzen_gast}','Montserrat',true,WH,[.8,46],[.8,40],{upper:false,maxw:44})
+].map(e=>{if(e.id==='t1'||e.id==='t6'){e.story.x=.27;e.post.x=.27}if(e.id==='t2'||e.id==='t7'){e.story.x=.73;e.post.x=.73}return e})}}
+function tafelTpl(){return (S.tafel&&S.tafel.tpl)||defaultTafel()}
+function tafelActive(){
+  const t=S.tafel;if(!t||!t.on)return false;
+  const c=S.match&&S.match.clock;
+  if(c&&c.phase==='ende'&&c.endAt&&c.endAt>(t.since||0)&&Date.now()+S.off>c.endAt+(t.nach??30)*60000)return false;
+  return true;
+}
+function tafelBackAt(){const t=S.tafel,c=S.match&&S.match.clock;if(!t||!t.on||!c||c.phase!=='ende'||!c.endAt||c.endAt<=(t.since||0))return null;return c.endAt+(t.nach??30)*60000}
 function sampleVars(){
   const m=S.match||{},verein=S.settings.verein,g=m.gegner||'TuS Beispielstadt',heimSpiel=m.ort!=='auswaerts';
   return {verein,gegner:g,heim:heimSpiel?verein:g,gast:heimSpiel?g:verein,tore_heim:2,tore_gast:1,spieler:'Max Mustermann',minute:'67',
@@ -686,7 +744,17 @@ function matchCard(){
   if(!m||!m.gegner)return `<section class="card"><div class="title">Noch kein Spieltag festgelegt</div><p class="hint">${canMatch()?'Lege Gegner, Datum und Anstoß einmal fest. Alle Bilder übernehmen das automatisch.':'Sobald der Spieltag angelegt ist, siehst du ihn hier.'}</p>${canMatch()?'<button class="btn" data-act="match">Spieltag festlegen</button>':''}</section>`;
   const v=buildVars({},null),n=(m.tore||[]).length;
   return `<section class="board"><div class="teams"><span class="tm">${h(v.heim)}</span><span class="sc num">${v.tore_heim}<i>:</i>${v.tore_gast}</span><span class="tm r">${h(v.gast)}</span></div>
-  <div class="meta"><span>${h(v.datum)}${m.anstoss?' · '+h(m.anstoss)+' Uhr':''} · ${n} ${n===1?'Tor':'Tore'}</span>${canMatch()?'<button class="btn glas klein" data-act="match">Spieltag</button>':''}</div>${clockHtml()}</section>`;
+  <div class="meta"><span>${h(v.datum)}${m.anstoss?' · '+h(m.anstoss)+' Uhr':''} · ${n} ${n===1?'Tor':'Tore'}</span>${canMatch()?'<button class="btn glas klein" data-act="match">Spieltag</button>':''}</div>${clockHtml()}${tafelHtml()}</section>`;
+}
+function vTafel(){return '<canvas id="tfc" class="tafelcanvas"></canvas>'}
+let tafelOv=null,tafelOvKey='';
+async function drawTafel(){
+  const c=$('#tfc');if(!c)return;const W=1080,H=1920;if(c.width!==W){c.width=W;c.height=H}
+  const t=tafelTpl(),key=(t.overlay&&t.overlay.story)||'';
+  if(key!==tafelOvKey){tafelOvKey=key;tafelOv=null;prepOverlay(t,'story').then(i=>{if(tafelOvKey===key){tafelOv=i;drawTafel()}})}
+  crestReady();
+  renderCanvas(c.getContext('2d'),{W,H,tpl:t,fmt:'story',vars:tafelVars(false),ov:tafelOv});
+  const on=tafelActive();try{if(window.parent!==window)window.parent.postMessage({aushangTafel:on},'*')}catch(e){}
 }
 function vWelcome(){
   return `<div class="wrap">${brand('')}<h2 class="hello">Hallo!</h2>
@@ -792,6 +860,7 @@ function vResult(){
   <div class="stage">${F.adjust?'<canvas id="adj" class="adj"></canvas>':`<img id="outImg" alt="Fertiges Bild" ${F.url?`src="${F.url}"`:''}>`}</div>
   ${F.adjust?`<p class="note">Bild mit dem Finger verschieben, mit zwei Fingern zoomen.</p><section class="card"><label class="feld"><span>Zoom</span><input type="range" id="zoom" min="1" max="4" step="0.01" value="${F.tf.zoom}"></label></section><button class="btn gross" data-act="adjustDone">Fertig</button>`:
   `<button class="btn gross weiss" data-act="share">${IC.share}${share?'Teilen oder sichern':'Bild herunterladen'}</button>
+  ${canAushang()?`<button class="btn glas" data-act="aushangAsk">${F.aushangBis?'Läuft auf dem Aushang · '+h(fmtBis(F.aushangBis)):'Auch auf den Aushang?'}</button>`:''}
   <div class="reihe"><button class="btn glas" data-act="adjust">Ausschnitt anpassen</button>${canText?'<button class="btn glas" data-act="textMode">Text anpassen</button>':''}</div>
   <div class="reihe">${segFmt(F.fmt,'resFmt',true)}</div>
   <button class="btn gross" data-act="home">Fertig</button>`}</div>`;
@@ -817,11 +886,26 @@ function vResultVideo(share,canText){
    <div class="reihe">${segFmt(F.fmt,'resFmt',true)}</div></div>`;
 }
 
+const canAushang=()=>!!(S.aushang&&S.aushang.verbunden&&(isAdmin()||(S.me&&S.me.aushang)));
+function fmtBis(ts){const d=new Date(ts*1000),n=new Date();return (d.toDateString()===n.toDateString()?'heute':d.toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit'}))+' '+d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})+' Uhr'}
+function localDT(d){const p=x=>String(x).padStart(2,'0');return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes())}
+function aushangSheet(){
+  const def=new Date();def.setHours(23,59,0,0);if(def-Date.now()<3600000){def.setDate(def.getDate()+1);def.setHours(12,0,0,0)}
+  const val=E.aushangBis||localDT(def);
+  return `<div class="sheet" data-act="sheetBg"><div class="sheet-card" role="dialog" aria-modal="true"><div class="head"><div class="title">Auf den Aushang</div><button class="x" data-act="aushangClose" aria-label="Schließen">${IC.x}</button></div>
+  <p class="hint">Das Bild läuft dann in der Diashow am Sportplatz und wird zur gewählten Zeit automatisch wieder gelöscht.</p>
+  <label class="feld"><span>Löschen am</span><input type="datetime-local" id="aus_bis" value="${val}" min="${localDT(new Date())}"></label>
+  <div class="chips2">${[['Heute 23:59',0],['Morgen 12:00',1],['In 3 Tagen',3],['In 1 Woche',7]].map(([l,d])=>`<button class="chipbtn" data-act="aushangQuick" data-v="${d}">${l}</button>`).join('')}</div>
+  <button class="btn" data-act="aushangUp" id="aus_go">Hochladen</button></div></div>`;
+}
+
 // ---------- Einstellungen (nur am PC) ----------
-function draft(){if(!E.draft)E.draft=clone(S.templates);return E.draft}
+const TF=()=>E.tab==='tafel';
+function draft(){if(TF()){if(!E.tdraft)E.tdraft=[clone(tafelTpl())];return E.tdraft}if(!E.draft)E.draft=clone(S.templates);return E.draft}
+const TAFEL_PH=[['heim','Heimteam'],['gast','Gastteam'],['tore_heim','Tore Heim'],['tore_gast','Tore Gast'],['spielzeit','Spielzeit 67:12'],['phase','z. B. 2. Halbzeit'],['torschuetzen_heim','Torschützen Heim'],['torschuetzen_gast','Torschützen Gast'],['torschuetzen','Alle Torschützen'],['gegner','Gegner'],['verein','Verein'],['datum','Datum'],['anstoss','Anstoß']];
 function vEditor(){
-  const tabs=[['vorlagen','Vorlagen'],['spieler','Spieler'],['gegner','Gegner'],['personen','Personen'],['verein','Verein']];
-  const body=E.tab==='vorlagen'?edTemplates():E.tab==='spieler'?edPlayers():E.tab==='gegner'?edGegner():E.tab==='personen'?edPeople():edClub();
+  const tabs=[['vorlagen','Vorlagen'],['spieler','Spieler'],['gegner','Gegner'],['personen','Personen'],['aushang','Aushang'],['tafel','Live-Tafel'],['verein','Verein']];
+  const body=(E.tab==='vorlagen'||E.tab==='tafel')?edTemplates():E.tab==='aushang'?edAushang():E.tab==='spieler'?edPlayers():E.tab==='gegner'?edGegner():E.tab==='personen'?edPeople():edClub();
   return `<div class="wrap wide">${topbar('Einstellungen','leaveEditor')}
   <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button class="tab" role="tab" data-act="tab" data-v="${k}" aria-selected="${E.tab===k}">${l}</button>`).join('')}</div>${body}</div>`;
 }
@@ -831,16 +915,20 @@ function edTemplates(){
   if(E.ei>=t.elements.length)E.ei=Math.max(0,t.elements.length-1);
   const el=t.elements[E.ei],fp=el?el[E.fmt]:null,a=t.ask,ov=t.overlay[E.fmt];
   const fontOpts=allFonts().map(f=>`<option ${el&&el.font===f?'selected':''}>${h(f)}</option>`).join('');
+  const tf=TF();
   return `<div class="ed">
-  <div class="stack"><div class="glass tlist"><span class="eyebrow">Buttons in der App</span>${d.map((x,i)=>`<button class="it" data-act="tplSel" data-i="${i}" aria-current="${i===E.ti}"><span class="kic sm">${tplIcon(x)}</span>${h(x.name)}</button>`).join('')}
-   <div class="reihe"><button class="mini hellm" data-act="tplMove" data-d="-1" aria-label="nach oben">↑</button><button class="mini hellm" data-act="tplMove" data-d="1" aria-label="nach unten">↓</button><button class="btn weiss klein" data-act="tplAdd">+ Button</button></div></div></div>
-  <div class="prev"><div class="frage-z">${segFmt(E.fmt,'edFmt',true)}<span class="note">Texte auf dem Bild ziehen</span></div>
+  <div class="stack">${tf?`<div class="glass"><span class="eyebrow">Live-Tafel</span><p class="note" style="text-align:left">So sieht die Tafel auf der Stele am Sportplatz aus. Die Platzhalter füllen sich dort live aus dem Spieltag.</p>${S.aushang&&S.aushang.verbunden?'':'<p class="note" style="text-align:left">Der Aushang ist noch nicht verbunden. Das machst du im Reiter „Aushang“.</p>'}</div>`:`<div class="glass tlist"><span class="eyebrow">Buttons in der App</span>${d.map((x,i)=>`<button class="it" data-act="tplSel" data-i="${i}" aria-current="${i===E.ti}"><span class="kic sm">${tplIcon(x)}</span>${h(x.name)}</button>`).join('')}
+   <div class="reihe"><button class="mini hellm" data-act="tplMove" data-d="-1" aria-label="nach oben">↑</button><button class="mini hellm" data-act="tplMove" data-d="1" aria-label="nach unten">↓</button><button class="btn weiss klein" data-act="tplAdd">+ Button</button></div></div>`}</div>
+  <div class="prev"><div class="frage-z">${tf?'<span class="frage">Stele 9:16</span>':segFmt(E.fmt,'edFmt',true)}<span class="note">Texte auf dem Bild ziehen</span></div>
    <div class="stage"><canvas id="edc"></canvas></div>
-   <section class="card"><div><div class="title">Overlay ${FMT[E.fmt].label}</div><div class="sub">PNG mit ${FMT[E.fmt].w} × ${FMT[E.fmt].h} Pixeln, durchsichtig wo das Foto durchscheinen soll</div></div>
-    <div class="ovrow"><span class="stat${ov?' ok':''}">${ov?'Eigenes PNG aktiv':'Platzhalter aktiv'}</span><span style="flex:1"></span>
+   <section class="card"><div><div class="title">${tf?'Hintergrund':'Overlay '+FMT[E.fmt].label}</div><div class="sub">${tf?'Bild mit 1080 × 1920 Pixeln, z. B. mit Vereinsfarben oder Sponsoren. Ohne Bild gibt es einen Hintergrund in Vereinsblau.':'PNG mit '+FMT[E.fmt].w+' × '+FMT[E.fmt].h+' Pixeln, durchsichtig wo das Foto durchscheinen soll'}</div></div>
+    <div class="ovrow"><span class="stat${ov?' ok':''}">${ov?'Eigenes Bild aktiv':tf?'Vereinsblau':'Platzhalter aktiv'}</span><span style="flex:1"></span>
     <button class="btn klein" data-act="ovUpload">${ov?'Ersetzen':'PNG hochladen'}</button>${ov?'<button class="btn rot klein" data-act="ovRemove">Entfernen</button>':''}</div></section></div>
   <div class="props">
-   <section class="card"><div class="title">Button</div>
+   ${tf?`<section class="card"><div class="title">Rückkehr zur Diashow</div>
+    <label class="feld"><span>Minuten nach Abpfiff</span><input type="number" id="taf_nach" min="0" max="600" value="${S.tafel&&S.tafel.nach!=null?S.tafel.nach:30}"></label>
+    <p class="hint">So lange bleibt die Tafel nach dem Abpfiff noch stehen. Danach läuft die Diashow von selbst wieder. Mit „Diashow zeigen“ in der App geht es jederzeit sofort.</p>
+    <button class="btn hell klein" data-act="tafNach">Übernehmen</button></section>`:`<section class="card"><div class="title">Button</div>
     <label class="feld"><span>Name auf dem Button</span><input id="t_name" data-ed="t.name" value="${h(t.name)}"></label>
     <label class="feld"><span>Titel im Platzhalter</span><input id="t_title" data-ed="t.title" value="${h(t.title)}"></label>
     <p class="hint">Der Titel erscheint nur, solange kein eigenes PNG hochgeladen ist.</p></section>
@@ -850,7 +938,7 @@ function edTemplates(){
     <label class="sw"><span class="t">Spielstand</span><input type="checkbox" id="a_st" data-ed="a.spielstand" ${a.spielstand?'checked':''}></label>
     <label class="sw"><span class="t">Frage „Torschützen mit anzeigen?“</span><input type="checkbox" id="a_ts" data-ed="a.torschuetzen" ${a.torschuetzen?'checked':''}></label>
     <label class="feld"><span>Freitext-Frage · leer = keine</span><input id="a_ft" data-ed="a.freitext" value="${h(a.freitext)}" placeholder="z. B. Kommentar"></label>
-    <label class="sw"><span class="t">Tor im Spieltag speichern<small>Für die Torschützen-Liste und den Spielstand</small></span><input type="checkbox" id="t_rg" data-ed="t.recordGoal" ${t.recordGoal?'checked':''}></label></section>
+    <label class="sw"><span class="t">Tor im Spieltag speichern<small>Für die Torschützen-Liste und den Spielstand</small></span><input type="checkbox" id="t_rg" data-ed="t.recordGoal" ${t.recordGoal?'checked':''}></label></section>`}
    <section class="card"><div class="title">Texte und Wappen auf dem Bild</div>
     <div class="chips2">${t.elements.map((x,i)=>`<button class="chipbtn" data-act="elSel" data-i="${i}" aria-pressed="${i===E.ei}">${h(x.label||'Text')}</button>`).join('')}<button class="chipbtn plus" data-act="elAdd">+ Text</button><button class="chipbtn plus" data-act="elAddImg">+ Wappen</button></div>
     ${el&&el.type==='img'?`<label class="feld"><span>Bezeichnung</span><input id="e_label" data-ed="e.label" value="${h(el.label)}"></label>
@@ -864,25 +952,26 @@ function edTemplates(){
     ${E.confirm==='el'?'<div class="reihe"><button class="btn rot" data-act="elDel">Wappen wirklich löschen</button><button class="btn hell" data-act="cancelConfirm">Abbrechen</button></div>':'<button class="btn rot klein" data-act="askElDel">Dieses Wappen löschen</button>'}`:
     el?`<label class="feld"><span>Bezeichnung</span><input id="e_label" data-ed="e.label" value="${h(el.label)}"></label>
     <label class="feld"><span>Inhalt</span><textarea id="e_text" data-ed="e.text" rows="2">${h(el.text)}</textarea></label>
-    <div class="ph">${PLACEHOLDERS.map(([k,l])=>`<button data-act="phIns" data-v="{${k}}" title="${h(l)}">{${k}}</button>`).join('')}</div>
+    <div class="ph">${(tf?TAFEL_PH:PLACEHOLDERS).map(([k,l])=>`<button data-act="phIns" data-v="{${k}}" title="${h(l)}">{${k}}</button>`).join('')}</div>
     <p class="hint">Ist ein Platzhalter leer, zum Beispiel keine Minute, wird der ganze Text ausgeblendet.</p>
     <div class="zwei"><label class="feld"><span>Schrift</span><select id="e_font" data-ed="e.font">${fontOpts}</select></label>
      <label class="feld"><span>Farbe</span><input type="color" id="e_color" data-ed="e.color" value="${h(el.color)}"></label></div>
     <div class="drei"><label class="feld"><span>Größe</span><input type="number" id="e_size" data-ed="p.size" value="${Math.round(fp.size)}" min="10" max="600"></label>
      <label class="feld"><span>X %</span><input type="number" id="e_x" data-ed="p.x" value="${Math.round(fp.x*1000)/10}" step="0.5"></label>
      <label class="feld"><span>Y %</span><input type="number" id="e_y" data-ed="p.y" value="${Math.round(fp.y*1000)/10}" step="0.5"></label></div>
-    <div class="zwei"><label class="feld"><span>Drehung °</span><input type="number" id="e_rot" data-ed="e.rot" value="${Number(el.rot)||0}" step="1" min="-180" max="180"></label><span></span></div>
+    <div class="zwei"><label class="feld"><span>Drehung °</span><input type="number" id="e_rot" data-ed="e.rot" value="${Number(el.rot)||0}" step="1" min="-180" max="180"></label><label class="feld"><span>Max. Breite % · 0 = aus</span><input type="number" id="e_maxw" data-ed="e.maxw" value="${Number(el.maxw)||0}" step="1" min="0" max="100"></label></div>
+    <p class="hint">Mit max. Breite wird ein langer Text, z. B. ein langer Vereinsname, automatisch kleiner, damit er nicht übersteht.</p>
     <label class="feld"><span>Ausrichtung</span><select id="e_align" data-ed="e.align">${[['left','links'],['center','mittig'],['right','rechts']].map(([k,l])=>`<option value="${k}" ${el.align===k?'selected':''}>${l}</option>`).join('')}</select></label>
     <label class="sw"><span class="t">Fett</span><input type="checkbox" id="e_bold" data-ed="e.bold" ${el.bold?'checked':''}></label>
     <label class="sw"><span class="t">Großbuchstaben</span><input type="checkbox" id="e_upper" data-ed="e.upper" ${el.upper?'checked':''}></label>
     <label class="sw"><span class="t">Schatten</span><input type="checkbox" id="e_shadow" data-ed="e.shadow" ${el.shadow?'checked':''}></label>
-    <label class="sw"><span class="t">Am Handy auf dem fertigen Bild anpassbar<small>Verschieben, drehen und Größe ändern. Startet immer so, wie hier eingestellt.</small></span><input type="checkbox" id="e_mov" data-ed="e.movable" ${isMovable(el)?'checked':''}></label>
+    ${tf?'':`<label class="sw"><span class="t">Am Handy auf dem fertigen Bild anpassbar<small>Verschieben, drehen und Größe ändern. Startet immer so, wie hier eingestellt.</small></span><input type="checkbox" id="e_mov" data-ed="e.movable" ${isMovable(el)?'checked':''}></label>`}
     <p class="hint">Größe und Position gelten für ${FMT[E.fmt].label}. Das andere Format stellst du über der Vorschau um.</p>
     ${E.confirm==='el'?'<div class="reihe"><button class="btn rot" data-act="elDel">Text wirklich löschen</button><button class="btn hell" data-act="cancelConfirm">Abbrechen</button></div>':'<button class="btn rot klein" data-act="askElDel">Diesen Text löschen</button>'}`:''}
    </section>
-   ${E.confirm==='tpl'?'<section class="card"><div class="title">Button „'+h(t.name)+'“ löschen?</div><div class="reihe"><button class="btn rot" data-act="tplDel">Löschen</button><button class="btn hell" data-act="cancelConfirm">Abbrechen</button></div></section>':'<button class="btn glas" data-act="askTplDel">Diesen Button löschen</button>'}
+   ${tf?'':E.confirm==='tpl'?'<section class="card"><div class="title">Button „'+h(t.name)+'“ löschen?</div><div class="reihe"><button class="btn rot" data-act="tplDel">Löschen</button><button class="btn hell" data-act="cancelConfirm">Abbrechen</button></div></section>':'<button class="btn glas" data-act="askTplDel">Diesen Button löschen</button>'}
   </div></div>
-  <div class="bar"><span class="txt"><b>${E.dirty?'Nicht gespeichert':'Alles gespeichert'}</b><small>Nach dem Speichern sehen es alle sofort am Handy</small></span>${E.dirty?'<button class="btn hell" data-act="tplDiscard">Verwerfen</button>':''}<button class="btn" data-act="tplSave" ${E.dirty?'':'disabled'}>Speichern</button></div>`;
+  <div class="bar"><span class="txt"><b>${E.dirty?'Nicht gespeichert':'Alles gespeichert'}</b><small>${tf?'Nach dem Speichern erscheint es auf der Stele, sobald die Tafel läuft':'Nach dem Speichern sehen es alle sofort am Handy'}</small></span>${E.dirty?'<button class="btn hell" data-act="tplDiscard">Verwerfen</button>':''}<button class="btn" data-act="tplSave" ${E.dirty?'':'disabled'}>Speichern</button></div>`;
 }
 function edPlayers(){
   const pl=S.players.slice().sort((a,b)=>nachname(a).localeCompare(nachname(b),'de')||a.localeCompare(b,'de'));
@@ -898,7 +987,8 @@ function rolleSel(id,val){return `<select id="${id}">${[['nutzer','Bilder erstel
 function personForm(p,k){
   return `<label class="feld"><span>Name für „Hallo …“</span><input id="${k}_n" value="${h(p.name||'')}" placeholder="z. B. Jonas"></label>
   <label class="feld"><span>Rolle</span>${rolleSel(k+'_r',p.rolle||'nutzer')}</label>
-  <span class="flabel">Sichtbare Buttons</span>${btnChecks(k,p.buttons)}`;
+  <span class="flabel">Sichtbare Buttons</span>${btnChecks(k,p.buttons)}
+  ${S.aushang&&S.aushang.verbunden?`<label class="sw"><span class="t">Darf Bilder auf den Aushang laden</span><input type="checkbox" id="${k}_aus" ${p.aushang?'checked':''}></label>`:''}`;
 }
 function edPeople(){
   const ppl=S.pers.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
@@ -923,6 +1013,16 @@ function edGegner(){
   <section class="card"><div class="head"><div class="title">Gegner-Liste</div><span class="stat">${list.length}</span></div>
    <div class="list">${list.map(g=>`<div class="row">${g.wappen?crestThumb(g.wappen):'<span class="wthumb leer" aria-hidden="true"></span>'}<span class="mid"><b>${h(g.name)}</b><small>${g.wappen?'Wappen hinterlegt':'Ohne Wappen'}</small></span>
     <button class="mini" data-act="gCrest" data-v="${h(g.name)}">${g.wappen?'Wappen ändern':'Wappen'}</button>${g.wappen?`<button class="mini" data-act="gCrestDel" data-v="${h(g.name)}">Wappen weg</button>`:''}${E.confirm==='g'+g.name?`<button class="mini scharf" data-act="gDel" data-v="${h(g.name)}">Wirklich</button>`:`<button class="mini" data-act="askGDel" data-v="${h(g.name)}">Entfernen</button>`}</div>`).join('')}</div></section></div>`;
+}
+function edAushang(){
+  const a=S.aushang||{},ok=a.verbunden;
+  return `<div class="cols"><section class="card"><div class="head"><div class="title">Digitaler Aushang</div><span class="stat${ok?' ok':''}">${ok?'Verbunden':'Nicht verbunden'}</span></div>
+   ${ok?`<p class="hint">Verbunden mit <b>${h(a.adresse||'')}</b>. Fertige Bilder lassen sich jetzt mit Löschzeit auf den Aushang schicken, und die Live-Tafel kann die Diashow übernehmen.</p>
+    ${E.confirm==='aTrennen'?'<div class="reihe"><button class="btn rot" data-act="aTrennen">Wirklich trennen</button><button class="btn hell" data-act="cancelConfirm">Abbrechen</button></div>':'<div class="reihe"><button class="btn hell" data-act="aNeu">Neu verbinden</button><button class="btn rot" data-act="askATrennen">Trennen</button></div>'}`:''}
+   ${!ok||E.aNeu?`<ol class="schritte"><li>Öffne die <b>Aushang-App</b> als Admin und lege unter Personen eine Person <b>„Spieltag-App“</b> mit der Rolle <b>Admin</b> an.</li><li>Kopiere ihren Einladungslink (endet auf <code>/admin?k=…</code>).</li><li>Füge ihn hier ein und klick auf „Verbinden“.</li></ol>
+    <label class="feld"><span>Einladungslink aus der Aushang-App</span><input id="a_link" placeholder="https://…/admin?k=…" autocomplete="off"></label>
+    <button class="btn" data-act="aVerbinden">Verbinden</button>`:''}</section>
+   <section class="card"><div class="title">So funktioniert es</div><p class="hint">Der Zugang zum Aushang liegt nur in deinem Google-Skript, die Handys bekommen ihn nie zu sehen. Wer Bilder auf den Aushang laden darf, stellst du unter <b>Personen</b> ein. Die Live-Tafel schalten du und alle mit der Rolle „Spieltag verwalten“ auf der Startseite ein und aus. Gestaltet wird sie im Reiter <b>Live-Tafel</b>.</p></section></div>`;
 }
 function edClub(){
   const s=S.settings;
@@ -954,11 +1054,12 @@ function render(){
   if(S.view!=='result')stopVideo();
   if(S.view==='loading'){app.innerHTML='<div class="wrap"><div class="lade"></div></div>';return}
   if(S.view==='editor'&&!canEditHere())S.view='home';
-  const map={welcome:vWelcome,home:vHome,match:vMatch,input:vInput,source:vSource,cam:vCam,result:vResult,editor:vEditor};
-  app.innerHTML=(map[S.view]||vHome)()+(E.sheet?linkSheet(E.sheet):'');
+  const map={tafel:vTafel,welcome:vWelcome,home:vHome,match:vMatch,input:vInput,source:vSource,cam:vCam,result:vResult,editor:vEditor};
+  app.innerHTML=(map[S.view]||vHome)()+(E.sheet?linkSheet(E.sheet):'')+(E.aushang&&S.view==='result'?aushangSheet():'');
   const w=app.firstElementChild;
   if(w&&S.view!==lastView){w.classList.add(lastView&&S.view==='home'?'rueck':'vor');lastView=S.view}
-  if(S.view==='editor'&&E.tab==='vorlagen')drawEditor();
+  if(S.view==='editor'&&(E.tab==='vorlagen'||E.tab==='tafel'))drawEditor();
+  if(S.view==='tafel')drawTafel();
   if(S.view==='result')F.mode==='text'?drawText():F.adjust?drawAdjust():F.isVideo?(!F.url&&startVidLoop()):(!F.url&&compose());
   if(S.view==='cam')startCam();
   if(S._scrollTop){window.scrollTo(0,0);S._scrollTop=false}
@@ -966,6 +1067,7 @@ function render(){
 function go(view){S.view=view;S._scrollTop=true;render()}
 function busyInput(){return document.activeElement&&document.activeElement.matches('input,textarea,select')}
 function rerenderSoft(){
+  if(S.view==='tafel'){drawTafel();return}
   if(['home','welcome'].includes(S.view))render();
   else if(S.view==='editor'&&E.tab!=='vorlagen'&&!busyInput())render();
 }
@@ -979,7 +1081,7 @@ async function drawEditor(){
   if(key!==edOvKey){edOvKey=key;edOv=null;prepOverlay(t,E.fmt).then(i=>{if(edOvKey===key){edOv=i;drawEditor()}})}
   await fontsReady;crestReady(true);
   const ctx=c.getContext('2d');
-  edBoxes=renderCanvas(ctx,{W:w,H,tpl:t,fmt:E.fmt,vars:sampleVars(),demo:true,ov:edOv});
+  edBoxes=renderCanvas(ctx,{W:w,H,tpl:t,fmt:E.fmt,vars:TF()?tafelVars(true):sampleVars(),demo:true,ov:edOv});
   if(E.guides)drawGuides(ctx,w,H,E.guides,E.fmt);
   const b=edBoxes.find(x=>x.i===E.ei);
   if(b)outline(ctx,b);
@@ -1328,12 +1430,14 @@ const actions={
     else{const ci=clockInfo();m.clock={phase:cmd,at:(c.phase==='h1'||c.phase==='h2')?c.base*60000+(now-c.start):(c.at||0)}}
     S.match=m;render();
     call({a:'clock',cmd}).then(()=>render()).catch(e=>{toast('Uhr nicht gespeichert: '+errText(e));refresh()})},
+  tafelToggle(b){const on=!tafelActive();S.tafel={...(S.tafel||{nach:30}),on,since:Date.now()+S.off};render();toast(on?'Live-Tafel erscheint gleich auf dem Aushang':'Aushang zeigt gleich wieder die Diashow');
+    call({a:'tafel',on}).catch(e=>{toast('Nicht gespeichert: '+errText(e));refresh()})},
   askClockReset(){E.confirm='clockreset';render()},
   async clockReset(){try{await call({a:'clock',cmd:'reset'});E.confirm=null;render();toast('Uhr zurückgesetzt')}catch(e){toast(errText(e))}},
   cancelConfirm(){E.confirm=null;render()},
   editor(){E.draft=null;E.dirty=false;E.confirm=null;edOvKey='';go('editor')},
-  leaveEditor(){if(E.dirty&&E.confirm!=='leave'){E.confirm='leave';toast('Nicht gespeichert. Nochmal tippen zum Verlassen.');return}E.draft=null;E.dirty=false;E.confirm=null;S.templates=S.templates;go('home')},
-  tab(b){E.tab=b.dataset.v;E.confirm=null;render()},
+  leaveEditor(){if(E.dirty&&E.confirm!=='leave'){E.confirm='leave';toast('Nicht gespeichert. Nochmal tippen zum Verlassen.');return}E.draft=null;E.tdraft=null;E.dirty=false;E.confirm=null;S.templates=S.templates;go('home')},
+  tab(b){const v=b.dataset.v;if((v==='tafel')!==TF()){E.draft=null;E.tdraft=null;E.dirty=false;E.ti=0;E.ei=0;edOvKey='';if(v==='tafel')E.fmt='story'}E.tab=v;E.confirm=null;render()},
   edFmt(b){E.fmt=b.dataset.v;edOvKey='';render()},
   tplSel(b){E.ti=+b.dataset.i;E.ei=0;E.confirm=null;edOvKey='';render()},
   tplMove(b){const d=draft(),i=E.ti,j=i+ +b.dataset.d;if(j<0||j>=d.length)return;[d[i],d[j]]=[d[j],d[i]];E.ti=j;markDirty(true)},
@@ -1348,8 +1452,11 @@ const actions={
   phIns(b){const ta=$('#e_text');if(!ta)return;const s=ta.selectionStart??ta.value.length,en=ta.selectionEnd??s;ta.value=ta.value.slice(0,s)+b.dataset.v+ta.value.slice(en);ta.focus();ta.selectionStart=ta.selectionEnd=s+b.dataset.v.length;edApply(ta,false)},
   ovUpload(){$('#fileOv').click()},
   ovRemove(){draft()[E.ti].overlay[E.fmt]=null;edOvKey='';markDirty(true)},
-  tplDiscard(){E.draft=null;E.dirty=false;edOvKey='';render()},
-  async tplSave(b){b.disabled=true;const d=clone(draft());S.templates=d;E.dirty=false;E.draft=null;render();
+  tplDiscard(){E.draft=null;E.tdraft=null;E.dirty=false;edOvKey='';render()},
+  async tafNach(){const n=Math.max(0,Math.min(600,Math.round(+$('#taf_nach').value||0)));S.tafel={...(S.tafel||{}),nach:n};try{await call({a:'cfg',tafelNach:n});toast('Gespeichert')}catch(e){toast(errText(e))}},
+  async tplSave(b){if(TF()){b.disabled=true;const t=clone(draft()[0]);S.tafel={...(S.tafel||{}),tpl:t};E.dirty=false;E.tdraft=null;render();
+      try{await call({a:'cfg',tafelTpl:t});toast('Live-Tafel gespeichert')}catch(e){E.tdraft=[t];E.dirty=true;render();toast('Nicht gespeichert: '+errText(e))}return}
+    b.disabled=true;const d=clone(draft());S.templates=d;E.dirty=false;E.draft=null;render();
     try{await call({a:'cfg',tpl:d});toast('Gespeichert. Alle sehen es jetzt am Handy.')}catch(e){E.draft=d;E.dirty=true;render();toast('Nicht gespeichert: '+errText(e))}},
   plAdd(){const v=$('#p_one').value.trim();if(v)savePlayers([...S.players,v])},
   plAddMany(){const v=$('#p_many').value.split('\n').map(x=>x.trim()).filter(Boolean);if(v.length)savePlayers([...S.players,...v])},
@@ -1364,19 +1471,38 @@ const actions={
   pNew(){E.newP=true;render()},
   pCancel(){E.newP=null;render()},
   async pCreate(){const name=$('#np_n').value.trim();if(!name){toast('Bitte einen Namen eintragen.');return}
-    try{const r=await call({a:'person',person:{name,rolle:$('#np_r').value,buttons:checkedButtons('np')}});E.newP=null;const p=S.pers.find(x=>x.id===r.saved);E.sheet=p;render()}catch(e){toast(errText(e))}},
+    try{const r=await call({a:'person',person:{name,rolle:$('#np_r').value,buttons:checkedButtons('np'),aushang:!!($('#np_aus')&&$('#np_aus').checked)}});E.newP=null;const p=S.pers.find(x=>x.id===r.saved);E.sheet=p;render()}catch(e){toast(errText(e))}},
   pLink(b){E.sheet=S.pers.find(x=>x.id===b.dataset.id);render()},
   pOpen(b){E.openP=E.openP===b.dataset.id?null:b.dataset.id;E.confirm=null;render()},
-  async pSave(b,neu){const k=b.dataset.k,id=b.dataset.id;try{const r=await call({a:'person',person:{id,name:$('#'+k+'_n').value.trim(),rolle:$('#'+k+'_r').value,buttons:checkedButtons(k),off:$('#'+k+'_off').checked,neuerLink:!!neu}});if(neu){E.sheet=S.pers.find(x=>x.id===r.saved)}else E.openP=null;render();toast('Gespeichert')}catch(e){toast(errText(e))}},
+  async pSave(b,neu){const k=b.dataset.k,id=b.dataset.id;try{const r=await call({a:'person',person:{id,name:$('#'+k+'_n').value.trim(),rolle:$('#'+k+'_r').value,buttons:checkedButtons(k),off:$('#'+k+'_off').checked,aushang:!!($('#'+k+'_aus')&&$('#'+k+'_aus').checked),neuerLink:!!neu}});if(neu){E.sheet=S.pers.find(x=>x.id===r.saved)}else E.openP=null;render();toast('Gespeichert')}catch(e){toast(errText(e))}},
   pRelink(b){actions.pSave(b,true)},
   askPDel(b){E.confirm='p'+b.dataset.id;render()},
   async pDel(b){try{await call({a:'pdel',id:b.dataset.id});E.confirm=null;E.openP=null;render()}catch(e){toast(errText(e))}},
   async meSave(){try{await call({a:'cfg',set:{...S.settings,admin:$('#me_n').value.trim()}});toast('Gespeichert')}catch(e){toast(errText(e))}},
   fontUp(){const n=$('#f_name').value.trim();if(!n){toast('Gib der Schrift zuerst einen Namen.');return}E.fontName=n;$('#fileFont').click()},
   fontDel(b){const set={...S.settings,fonts:(S.settings.fonts||[]).filter(f=>f.id!==b.dataset.v)};S.settings=set;render();call({a:'cfg',set}).catch(e=>toast(errText(e)))},
+  aNeu(){E.aNeu=true;render()},
+  askATrennen(){E.confirm='aTrennen';render()},
+  async aTrennen(){E.confirm=null;try{await call({a:'aushangSetup',trennen:true});render();toast('Aushang getrennt')}catch(e){toast(errText(e))}},
+  async aVerbinden(b){const link=$('#a_link').value.trim();if(!link){toast('Bitte den Einladungslink einfügen.');return}
+    const m=API_RE.exec(S.con.url);b.disabled=true;b.textContent='Wird verbunden …';
+    try{await call({a:'aushangSetup',link,sid:m[2],dom:m[1]||'',app:appUrl()});E.aNeu=false;render();toast('Aushang verbunden')}catch(e){b.disabled=false;b.textContent='Verbinden';toast(errText(e))}},
   async clubSave(){try{await call({a:'cfg',set:{...S.settings,verein:$('#c_v').value.trim()||'SV Etteln',farbe:$('#c_f').value,akzent:$('#c_a').value}});render();toast('Gespeichert')}catch(e){toast(errText(e))}},
   sheetClose(){E.sheet=null;render()},
-  sheetBg(b,e){if(e.target===b){E.sheet=null;render()}},
+  sheetBg(b,e){if(e.target===b){E.sheet=null;E.aushang=false;render()}},
+  aushangAsk(){E.aushang=true;E.aushangBis=null;render()},
+  aushangClose(){E.aushang=false;render()},
+  aushangQuick(b){const d=new Date(),n=+b.dataset.v;if(n===0)d.setHours(23,59,0,0);else if(n===1){d.setDate(d.getDate()+1);d.setHours(12,0,0,0)}else{d.setDate(d.getDate()+n);d.setHours(23,59,0,0)}E.aushangBis=localDT(d);render()},
+  async aushangUp(b){
+    const v=$('#aus_bis').value,until=Math.round(new Date(v).getTime()/1000);
+    if(!v||!until||until*1000<Date.now()+60000){toast('Bitte einen Zeitpunkt in der Zukunft wählen.');return}
+    if(!F||!F.blob){toast('Das Bild ist noch nicht fertig.');return}
+    b.disabled=true;b.textContent='Wird hochgeladen …';
+    try{
+      const data=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(F.blob)});
+      await call({a:'aushangUp',data,until});F.aushangBis=until;E.aushang=false;render();toast('Läuft jetzt auf dem Aushang');
+    }catch(e){b.disabled=false;b.textContent='Hochladen';toast(errText(e))}
+  },
   copyLink(){const t=$('#linkOut');const ok=()=>toast('Link kopiert');if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(t.value).then(ok,()=>{t.select();document.execCommand('copy');ok()});else{t.select();document.execCommand('copy');ok()}},
   shareLink(){const t=$('#linkOut');navigator.share({title:'Spieltag-Bilder',text:'Dein Zugang zur Spieltag-Bilder-App:',url:t.value}).catch(()=>{})}
 };
@@ -1715,9 +1841,17 @@ async function exportVideo(){
 (function init(){
   const fromUrl=parseLink(location.href);
   const standalone=navigator.standalone||matchMedia('(display-mode: standalone)').matches;
-  if(fromUrl){ls.set('sb-con',fromUrl);ls.del('sb-data');if(standalone){try{history.replaceState(null,'',location.pathname)}catch(e){}}}
+  if(fromUrl&&!fromUrl.tafel){ls.set('sb-con',fromUrl);ls.del('sb-data');if(standalone){try{history.replaceState(null,'',location.pathname)}catch(e){}}}
+  if(fromUrl&&fromUrl.tafel){
+    // Live-Tafel auf dem Aushang: eigene Ansicht, eigener Zugang, nichts auf dem Gerät gemerkt
+    S.con=fromUrl;document.body.classList.add('tafelmodus');S.view='tafel';render();
+    const tick=async()=>{try{await call({a:'load'})}catch(e){}drawTafel();setTimeout(tick,tafelActive()?4000:20000)};
+    tick();setInterval(drawTafel,1000);
+    return;
+  }
+  if(fromUrl)ls.set('sb-con',fromUrl);
   S.con=fromUrl||ls.get('sb-con');
-  if(!S.con){S.view='welcome';render();return}
+  if(!S.con||S.con.tafel){S.view='welcome';render();return}
   const cached=ls.get('sb-data');
   if(cached){take(cached);S.view='home'}else S.view='loading';
   render();refresh();
