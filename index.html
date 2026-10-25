@@ -336,6 +336,10 @@ code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85em; 
   .prev .stage canvas { max-height: 58vh; }
   .wrap.wide { padding-left: 12px; padding-right: 12px; }
 }
+.schalter { justify-content: space-between; }
+.schalter .pill { margin-left: 10px; padding: 3px 12px; border-radius: 999px; background: rgba(255,255,255,.18); font-size: .85rem; }
+.schalter[aria-pressed="true"] { background: #e5484d; border-color: #e5484d; color: #fff; }
+.schalter[aria-pressed="true"] .pill { background: #fff; color: #b4232a; }
 </style>
 </head>
 <body>
@@ -591,6 +595,7 @@ function renderCanvas(ctx,o){
   if(ov)ctx.drawImage(ov,0,0,W,H);else drawPlaceholder(ctx,W,H,tpl,fmt);}
   const boxes=[];
   (tpl.elements||[]).forEach((el,i)=>{
+    if(el.onlyCancel&&!(vars&&vars._abgesagt))return;
     const m=(ovr&&ovr[el.id])||null;
     if(el.type==='img'){
       const p=el[fmt]||el.story,img=crestImg(crestKey(el.src,demo)),hh=p.size*W/1080*(m?m.s:1);
@@ -692,7 +697,7 @@ function buildVars(inp,goalId){
   const wir=inp.wir!=null?inp.wir:(m.wir||0),sie=inp.sie!=null?inp.sie:(m.sie||0);
   return {verein,gegner:g,heim:heimSpiel?verein:g,gast:heimSpiel?g:verein,tore_heim:heimSpiel?wir:sie,tore_gast:heimSpiel?sie:wir,
     mannschaft:teamLabel(activeTeam()),spieler:inp.spieler||'',minute:inp.minute||'',...dateVars(m.datum),anstoss:m.anstoss||'',spielstaette:m.platz||'',text:inp.text||'',
-    torschuetzen:inp.showScorers?goalsGrouped(goalId).join('\n'):''};
+    torschuetzen:inp.showScorers?goalsGrouped(goalId).join('\n'):'',_abgesagt:inp.abgesagt?'1':''};
 }
 function tafelVars(sample){
   const m=S.match||{},verein=ownName(),g=m.gegner||(sample?'TuS Beispielstadt':''),heimSpiel=m.ort!=='auswaerts';
@@ -714,7 +719,8 @@ function defaultTafel(){return {id:'tafel',kind:'tafel',name:'Live-Tafel',title:
   mkEl('t6','Torschützen Heim','{torschuetzen_heim}','Montserrat',true,WH,[.8,46],[.8,40],{upper:false,maxw:44}),
   mkEl('t7','Torschützen Gast','{torschuetzen_gast}','Montserrat',true,WH,[.8,46],[.8,40],{upper:false,maxw:44})
 ].map(e=>{if(e.id==='t1'||e.id==='t6'){e.story.x=.27;e.post.x=.27}if(e.id==='t2'||e.id==='t7'){e.story.x=.73;e.post.x=.73}return e})}}
-function grafikTpl(team){const n=team==='m2'?'2':'1';return {id:'gr'+n,v:2,name:'Spieltag '+n+'. Mannschaft',title:'',team,noPhoto:true,ask:ask({}),recordGoal:false,overlay:{story:null,post:null},elements:[
+function cancelEl(id){return mkEl(id,'Abgesagt','Abgesagt','Bebas Neue',false,'#e5484d',[.5,240],[.5,210],{rot:-14,onlyCancel:true,maxw:86})}
+function grafikTpl(team){const n=team==='m2'?'2':'1';return {id:'gr'+n,v:3,cancelSwitch:true,name:'Spieltag '+n+'. Mannschaft',title:'',team,noPhoto:true,ask:ask({}),recordGoal:false,overlay:{story:null,post:null},elements:[
   mkEl('g0','Überschrift','{mannschaft}','Montserrat',true,AC,[.1,52],[.1,46]),
   mkEl('g1','Titel','Spieltag','Bebas Neue',false,WH,[.18,170],[.2,150]),
   {id:'gw1',type:'img',label:'Wappen eigene Mannschaft',src:'wir',shadow:true,rot:0,story:{x:.27,y:.38,size:300},post:{x:.27,y:.42,size:250}},
@@ -724,11 +730,15 @@ function grafikTpl(team){const n=team==='m2'?'2':'1';return {id:'gr'+n,v:2,name:
   mkEl('g4','Gegner','{gegner}','Montserrat',true,WH,[.5,58],[.58,50],{maxw:44}),
   mkEl('g5','Datum','{wochentag}, {datum_kurz}','Montserrat',true,WH,[.66,60],[.74,52]),
   mkEl('g6','Anstoß','{anstoss} Uhr','Bebas Neue',false,AC,[.74,120],[.82,100]),
-  mkEl('g7','Spielstätte','{spielstaette}','Montserrat',true,WH,[.82,44],[.9,38],{upper:false,maxw:90})
+  mkEl('g7','Spielstätte','{spielstaette}','Montserrat',true,WH,[.82,44],[.9,38],{upper:false,maxw:90}),
+  cancelEl('gx')
 ].map(e=>{if(e.id==='g2'){e.story.x=.27;e.story.y=.52;e.post.x=.27;e.post.y=.6}if(e.id==='g4'){e.story.x=.73;e.story.y=.52;e.post.x=.73;e.post.y=.6}if(e.id==='g3'){e.story.y=.38;e.post.y=.42}return e})}}
 function grUpgrade(t){
-  if(!t||!/^gr[12]$/.test(t.id)||t.v>=2)return t;
-  t=clone(t);t.v=2;(t.elements||[]).forEach(e=>{
+  if(!t||!/^gr[12]$/.test(t.id)||t.v>=3)return t;
+  t=clone(t);
+  if(!(t.elements||[]).some(e=>e.onlyCancel)){t.elements=[...(t.elements||[]),cancelEl('gx')];t.cancelSwitch=true}
+  if(t.v>=2){t.v=3;return t}
+  t.v=3;(t.elements||[]).forEach(e=>{
     if(e.id==='gw1'&&e.src==='heim'){e.src='wir';e.label='Wappen eigene Mannschaft'}
     if(e.id==='gw2'&&e.src==='gast'){e.src='gegner';e.label='Wappen Gegner'}
     if(e.id==='g2'&&e.text==='{heim}'){e.text='{verein}';e.label='Eigene Mannschaft'}
@@ -885,7 +895,7 @@ function vCam(){
   <div class="camctl"><button class="rad" data-act="camClose" aria-label="Schließen">${IC.x}</button><button class="shutter" data-act="shoot" aria-label="Auslösen"></button><button class="rad" data-act="camFlip" aria-label="Kamera wechseln">${IC.flip}</button></div>
   <button class="camnative" data-act="camNative">iPhone-Kamera öffnen</button></div>`;
 }
-function movableIds(){return F.tpl.elements.filter(isMovable).map(e=>e.id)}
+function movableIds(){return F.tpl.elements.filter(e=>isMovable(e)&&(!e.onlyCancel||F.input.abgesagt)).map(e=>e.id)}
 function curText(id){const el=F.tpl.elements.find(e=>e.id===id),m=F.ovr[id];if(m&&typeof m.txt==='string')return m.txt;const t=el?resolveText(el.text,buildVars(F.input,F.goalId)):'';return t||''}
 function curColor(id){const el=F.tpl.elements.find(e=>e.id===id),m=F.ovr[id];return (m&&m.c)||(el&&el.color)||'#ffffff'}
 const SWATCHES=()=>['#ffffff','#000000',S.settings.akzent||'#f2b52c',S.settings.farbe||'#20317f','#e53935','#43a047','#1e88e5','#fdd835'];
@@ -915,6 +925,7 @@ function vResult(){
   `<button class="btn gross weiss" data-act="share">${IC.share}${share?'Teilen oder sichern':'Bild herunterladen'}</button>
   ${canAushang()?`<button class="btn glas" data-act="aushangAsk">${F.aushangBis?'Läuft auf dem Aushang · '+h(fmtBis(F.aushangBis)):'Auch auf den Aushang?'}</button>`:''}
   <div class="reihe">${F.photo?'<button class="btn glas" data-act="adjust">Ausschnitt anpassen</button>':''}${canText?'<button class="btn glas" data-act="textMode">Text anpassen</button>':''}</div>
+  ${F.tpl.cancelSwitch?`<button class="btn glas schalter" data-act="abgesagt" aria-pressed="${!!F.input.abgesagt}">Abgesagt?<span class="pill">${F.input.abgesagt?'An':'Aus'}</span></button>`:''}
   <div class="reihe">${segFmt(F.fmt,'resFmt',true)}</div>
   <button class="btn gross" data-act="home">Fertig</button>`}</div>`;
 }
@@ -936,6 +947,7 @@ function vResultVideo(share,canText){
     ${long?'<p class="hint">Höchstens 60 Sekunden pro Story.</p>':''}</section>
    <button class="btn gross weiss" data-act="vidExport">Video erstellen</button>
    <div class="reihe"><button class="btn glas" data-act="adjust">Ausschnitt anpassen</button>${canText?'<button class="btn glas" data-act="textMode">Text anpassen</button>':''}</div>
+   ${F.tpl.cancelSwitch?`<button class="btn glas schalter" data-act="abgesagt" aria-pressed="${!!F.input.abgesagt}">Abgesagt?<span class="pill">${F.input.abgesagt?'An':'Aus'}</span></button>`:''}
    <div class="reihe">${segFmt(F.fmt,'resFmt',true)}</div></div>`;
 }
 
@@ -972,7 +984,7 @@ function edTemplates(){
   return `<div class="ed">
   <div class="stack">${tf?`<div class="glass"><span class="eyebrow">Live-Tafel</span><p class="note" style="text-align:left">So sieht die Tafel auf der Stele am Sportplatz aus. Die Platzhalter füllen sich dort live aus dem Spieltag.</p>${S.aushang&&S.aushang.verbunden?'':'<p class="note" style="text-align:left">Der Aushang ist noch nicht verbunden. Das machst du im Reiter „Aushang“.</p>'}</div>`:`<div class="glass tlist"><span class="eyebrow">Buttons in der App</span>${d.map((x,i)=>`<button class="it" data-act="tplSel" data-i="${i}" aria-current="${i===E.ti}"><span class="kic sm">${tplIcon(x)}</span>${h(x.name)}</button>`).join('')}
    <div class="reihe"><button class="mini hellm" data-act="tplMove" data-d="-1" aria-label="nach oben">↑</button><button class="mini hellm" data-act="tplMove" data-d="1" aria-label="nach unten">↓</button><button class="btn weiss klein" data-act="tplAdd">+ Button</button></div></div>`}</div>
-  <div class="prev"><div class="frage-z">${tf?'<span class="frage">Stele 9:16</span>':segFmt(E.fmt,'edFmt',true)}<span class="note">Texte auf dem Bild ziehen</span></div>
+  <div class="prev"><div class="frage-z">${tf?'<span class="frage">Stele 9:16</span>':segFmt(E.fmt,'edFmt',true)}<span class="note">Texte auf dem Bild ziehen</span>${!tf&&t.cancelSwitch?`<button class="btn glas klein schalter" data-act="cancelPrev" aria-pressed="${!!E.cancelPrev}">Vorschau abgesagt<span class="pill">${E.cancelPrev?'An':'Aus'}</span></button>`:''}</div>
    <div class="stage"><canvas id="edc"></canvas></div>
    <section class="card"><div><div class="title">${tf?'Hintergrund':'Overlay '+FMT[E.fmt].label}</div><div class="sub">${tf?'Bild mit 1080 × 1920 Pixeln, z. B. mit Vereinsfarben oder Sponsoren. Ohne Bild gibt es einen Hintergrund in Vereinsblau.':'PNG mit '+FMT[E.fmt].w+' × '+FMT[E.fmt].h+' Pixeln, durchsichtig wo das Foto durchscheinen soll'}</div></div>
     <div class="ovrow"><span class="stat${ov?' ok':''}">${ov?'Eigenes Bild aktiv':(tf||t.noPhoto)?'Vereinsblau':'Platzhalter aktiv'}</span><span style="flex:1"></span>
@@ -986,7 +998,8 @@ function edTemplates(){
     <label class="feld"><span>Titel im Platzhalter</span><input id="t_title" data-ed="t.title" value="${h(t.title)}"></label>
     <p class="hint">Der Titel erscheint nur, solange kein eigenes PNG hochgeladen ist.</p>
     <label class="feld"><span>Mannschaft</span><select id="t_team" data-ed="t.team"><option value="" ${!t.team?'selected':''}>Die auf der Startseite gewählte</option>${TEAMS.map(([k,l])=>`<option value="${k}" ${t.team===k?'selected':''}>Immer ${l}</option>`).join('')}</select></label>
-    <label class="sw"><span class="t">Ohne Foto (nur Grafik)<small>Es wird nicht nach Foto oder Video gefragt. Das Bild entsteht nur aus Hintergrund und Spieltag-Daten.</small></span><input type="checkbox" id="t_np" data-ed="t.noPhoto" ${t.noPhoto?'checked':''}></label></section>
+    <label class="sw"><span class="t">Ohne Foto (nur Grafik)<small>Es wird nicht nach Foto oder Video gefragt. Das Bild entsteht nur aus Hintergrund und Spieltag-Daten.</small></span><input type="checkbox" id="t_np" data-ed="t.noPhoto" ${t.noPhoto?'checked':''}></label>
+    <label class="sw"><span class="t">Schalter „Abgesagt?“ auf dem fertigen Bild<small>Eingeschaltet erscheinen alle Texte, die auf „Nur bei Abgesagt“ stehen, über dem Bild. Am besten mit „+ Abgesagt“ unten anlegen.</small></span><input type="checkbox" id="t_cs" data-ed="t.cancelSwitch" ${t.cancelSwitch?'checked':''}></label></section>
    <section class="card"><div class="title">Was wird abgefragt?</div>
     <label class="sw"><span class="t">Torschütze aus der Spielerliste</span><input type="checkbox" id="a_sp" data-ed="a.spieler" ${a.spieler?'checked':''}></label>
     <label class="feld"><span>Minute</span><select id="a_min" data-ed="a.minute">${[['aus','nicht abfragen'],['optional','optional'],['pflicht','Pflicht']].map(([k,l])=>`<option value="${k}" ${a.minute===k?'selected':''}>${l}</option>`).join('')}</select></label>
@@ -995,7 +1008,7 @@ function edTemplates(){
     <label class="feld"><span>Freitext-Frage · leer = keine</span><input id="a_ft" data-ed="a.freitext" value="${h(a.freitext)}" placeholder="z. B. Kommentar"></label>
     <label class="sw"><span class="t">Tor im Spieltag speichern<small>Für die Torschützen-Liste und den Spielstand</small></span><input type="checkbox" id="t_rg" data-ed="t.recordGoal" ${t.recordGoal?'checked':''}></label></section>`}
    <section class="card"><div class="title">Texte und Wappen auf dem Bild</div>
-    <div class="chips2">${t.elements.map((x,i)=>`<button class="chipbtn" data-act="elSel" data-i="${i}" aria-pressed="${i===E.ei}">${h(x.label||'Text')}</button>`).join('')}<button class="chipbtn plus" data-act="elAdd">+ Text</button><button class="chipbtn plus" data-act="elAddImg">+ Wappen</button></div>
+    <div class="chips2">${t.elements.map((x,i)=>`<button class="chipbtn" data-act="elSel" data-i="${i}" aria-pressed="${i===E.ei}">${h(x.label||'Text')}</button>`).join('')}<button class="chipbtn plus" data-act="elAdd">+ Text</button>${TF()?'':'<button class="chipbtn plus" data-act="elAddCancel">+ Abgesagt</button>'}<button class="chipbtn plus" data-act="elAddImg">+ Wappen</button></div>
     ${el&&el.type==='img'?`<label class="feld"><span>Bezeichnung</span><input id="e_label" data-ed="e.label" value="${h(el.label)}"></label>
     <label class="feld"><span>Welches Wappen</span><select id="e_src" data-ed="e.src">${[['heim','Wappen Heimmannschaft'],['gast','Wappen Gastmannschaft'],['wir','Eigenes Wappen (immer)'],['gegner','Wappen Gegner (immer)']].map(([k,l])=>`<option value="${k}" ${el.src===k?'selected':''}>${l}</option>`).join('')}</select></label>
     <p class="hint">Heim/Gast wechseln je nach Heim- oder Auswärtsspiel. „Eigenes Wappen“ und „Wappen Gegner“ bleiben immer an ihrer Stelle. Hat der Gegner kein Wappen, bleibt die Stelle leer.</p>
@@ -1020,6 +1033,7 @@ function edTemplates(){
     <label class="sw"><span class="t">Fett</span><input type="checkbox" id="e_bold" data-ed="e.bold" ${el.bold?'checked':''}></label>
     <label class="sw"><span class="t">Großbuchstaben</span><input type="checkbox" id="e_upper" data-ed="e.upper" ${el.upper?'checked':''}></label>
     <label class="sw"><span class="t">Schatten</span><input type="checkbox" id="e_shadow" data-ed="e.shadow" ${el.shadow?'checked':''}></label>
+    ${tf?'':`<label class="sw"><span class="t">Nur bei „Abgesagt“ zeigen<small>Erscheint nur, wenn am Handy der Schalter „Abgesagt?“ an ist</small></span><input type="checkbox" id="e_oc" data-ed="e.onlyCancel" ${el.onlyCancel?'checked':''}></label>`}
     ${tf?'':`<label class="sw"><span class="t">Am Handy auf dem fertigen Bild anpassbar<small>Verschieben, drehen und Größe ändern. Startet immer so, wie hier eingestellt.</small></span><input type="checkbox" id="e_mov" data-ed="e.movable" ${isMovable(el)?'checked':''}></label>`}
     <p class="hint">Größe und Position gelten für ${FMT[E.fmt].label}. Das andere Format stellst du über der Vorschau um.</p>
     ${E.confirm==='el'?'<div class="reihe"><button class="btn rot" data-act="elDel">Text wirklich löschen</button><button class="btn hell" data-act="cancelConfirm">Abbrechen</button></div>':'<button class="btn rot klein" data-act="askElDel">Diesen Text löschen</button>'}`:''}
@@ -1143,7 +1157,8 @@ async function drawEditor(){
   if(key!==edOvKey){edOvKey=key;edOv=null;prepOverlay(t,E.fmt).then(i=>{if(edOvKey===key){edOv=i;drawEditor()}})}
   await fontsReady;crestReady(true);
   const ctx=c.getContext('2d');
-  edBoxes=renderCanvas(ctx,{W:w,H,tpl:t,fmt:E.fmt,vars:TF()?tafelVars(true):sampleVars(),demo:true,ov:edOv});
+  const ev=TF()?tafelVars(true):sampleVars(),se=t.elements[E.ei];if(E.cancelPrev||(se&&se.onlyCancel))ev._abgesagt='1';
+  edBoxes=renderCanvas(ctx,{W:w,H,tpl:t,fmt:E.fmt,vars:ev,demo:true,ov:edOv});
   if(E.guides)drawGuides(ctx,w,H,E.guides,E.fmt);
   const b=edBoxes.find(x=>x.i===E.ei);
   if(b)outline(ctx,b);
@@ -1463,6 +1478,7 @@ const actions={
   zoomTo(b){setZoom(+b.dataset.v,true)},
   camNative(){go('source');setTimeout(()=>$('#fileCam').click(),50)},
   flowFmt(b){F.fmt=b.dataset.v;render()},
+  async abgesagt(){F.input.abgesagt=!F.input.abgesagt;F.url=null;if(F.isVideo){F.ov=await prepOverlay(F.tpl,F.fmt)}render()},
   async resFmt(b){F.fmt=b.dataset.v;F.tf={zoom:1,ox:0,oy:0};F.ovr={};F.url=null;if(F.isVideo)F.ov=await prepOverlay(F.tpl,F.fmt);render()},
   async adjust(){if(F.isVideo)stopVideo();F.adjust=true;F.ov=await prepOverlay(F.tpl,F.fmt);await fontsReady;render()},
   adjustDone(){F.adjust=false;F.url=null;render();if(F.isVideo)F.photo.play().catch(()=>{})},
@@ -1512,6 +1528,8 @@ const actions={
   tplDel(){draft().splice(E.ti,1);E.ti=0;E.ei=0;E.confirm=null;edOvKey='';markDirty(true)},
   elSel(b){E.ei=+b.dataset.i;E.confirm=null;render()},
   elAddImg(){const t=draft()[E.ti],n=t.elements.filter(e=>e.type==='img').length,src=n%2?'gast':'heim';t.elements.push({id:'e'+uidGen(),type:'img',label:src==='heim'?'Wappen Heim':'Wappen Gast',src,shadow:true,rot:0,story:{x:src==='heim'?.25:.75,y:.45,size:260},post:{x:src==='heim'?.25:.75,y:.42,size:220}});E.ei=t.elements.length-1;markDirty(true)},
+  elAddCancel(){const t=draft()[E.ti];t.elements.push(cancelEl('e'+uidGen()));t.cancelSwitch=true;E.ei=t.elements.length-1;markDirty(true)},
+  cancelPrev(){E.cancelPrev=!E.cancelPrev;render()},
   elAdd(){const t=draft()[E.ti];t.elements.push(mkEl('e'+uidGen(),'Neuer Text','Text','Montserrat',true,WH,[.5,70],[.5,60]));E.ei=t.elements.length-1;markDirty(true)},
   askElDel(){E.confirm='el';render()},
   elDel(){const t=draft()[E.ti];t.elements.splice(E.ei,1);E.ei=0;E.confirm=null;markDirty(true)},
